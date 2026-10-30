@@ -1,3 +1,12 @@
+## Novost 1.3.3 – preverjanje citatov
+
+Primerjava citatov upošteva Unicode ligature, mehke vezaje, presledke in besede,
+prelomljene z vezajem med vrsticami v PDF-ju. Ne uporablja približnega ujemanja.
+Če AI vrne nepotrjen ali dvoumen citat, aplikacija isti sklop poskusi analizirati
+še enkrat z navodilom za dobesedne citate. To pomeni največ en dodaten plačljiv
+klic na tak sklop. Ob ponovni napaki se analiza ustavi in ohrani prejšnji rezultat.
+S tem ni zagotovljeno, da bo vsak dokument uspešno analiziran.
+
 ## Novost 1.3.2 – daljši PDF-ji
 
 Odpravljena je omejitev 150 strani. PDF do 1.000 strani se v celoti prebere in
@@ -9,7 +18,7 @@ celotne nove analize; prejšnji rezultat ostane. Že opravljeni API klici so klj
 poznejši napaki plačljivi. Dolgi dokumenti zato potrebujejo več časa in več API
 klicev. Pogoji ostajajo nepotrjeni, ker se izjeme lahko nahajajo v drugih sklopih.
 
-# Trenutna različica: 1.3.2
+# Trenutna različica: 1.3.3
 
 Različica 1.3.1 popravlja zajem: edini začetni vir je uradni seznam SKP, dejanski razpisi pa so povezane strani pod `/zbirke/javne-objave/`. Informativne strani iz starih pregledov ostanejo v bazi, vendar niso več prikazane med razpisi. Ročno dodajanje preveri prisotnost povezave na seznamu SKP.
 

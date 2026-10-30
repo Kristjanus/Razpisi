@@ -233,3 +233,32 @@ class LongDocuments(unittest.TestCase):
         with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}), patch('analyzer._ai_extract_chunk',side_effect=[[],ValueError('HTTP 429')]):
             with self.assertRaisesRegex(ValueError,r'sklop 2/.*Long.pdf.*HTTP 429'):
                 analyzer.ai_extract([self.document()])
+
+class EvidenceRepair(unittest.TestCase):
+    def test_pdf_typography_without_fuzzy_matching(self):
+        self.assertEqual(analyzer.normalize_quote('kme-\ntija ima ﬁnančno pod\u00adporo'),analyzer.normalize_quote('kmetija ima finančno podporo'))
+        self.assertNotEqual(analyzer.normalize_quote('najmanj 15 krav'),analyzer.normalize_quote('najmanj 50 krav'))
+
+    def test_one_repair_request_preserves_validated_result(self):
+        doc=dict(url=URL,title='Test',text='Exact source',pages=None)
+        item=dict(label='Test',fact_key='unknown',operator='none',expected=None,mandatory=False,fixed=False,evidence_url=URL,evidence_quote='Exact source',explanation='Review',page_number=None)
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}), patch('analyzer._ai_extract_chunk',side_effect=[analyzer.EvidenceError('Invalid quote'),[item]]) as extract:
+            self.assertEqual(analyzer.ai_extract([doc]),[item])
+            self.assertEqual(extract.call_count,2)
+            self.assertEqual(extract.call_args.kwargs['evidence_feedback'],'Invalid quote')
+
+    def test_repair_is_bounded(self):
+        doc=dict(url=URL,title='Test',text='Exact source',pages=None)
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}), patch('analyzer._ai_extract_chunk',side_effect=analyzer.EvidenceError('Invalid quote')) as extract:
+            with self.assertRaisesRegex(ValueError,'sklop 1/1'):
+                analyzer.ai_extract([doc])
+            self.assertEqual(extract.call_count,2)
+
+    def test_repair_still_rejects_invented_quote(self):
+        case=Extraction();case.setUp()
+        case.item['evidence_quote']='This sentence does not exist in source'
+        response=case.response(json.dumps({'conditions':[case.item]}))
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}), patch('analyzer.requests.post',return_value=response) as request:
+            with self.assertRaisesRegex(ValueError,'citata ni mogoče potrditi'):
+                analyzer.ai_extract(case.docs)
+            self.assertEqual(request.call_count,2)

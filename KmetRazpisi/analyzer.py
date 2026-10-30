@@ -1,7 +1,7 @@
 """SKP document retrieval and cautious AI condition extraction.
 Requires requests and bs4; optional pymupdf for PDF and OPENAI_API_KEY for AI.
 """
-import io, json, os, re, hashlib
+import io, json, os, re, hashlib, unicodedata
 from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
@@ -119,7 +119,18 @@ def fallback(docs):
                 'explanation':'Ključna beseda je zaznana, vendar to NI potrjen pogoj razpisa.'})
     return result[:24]
 
-def _ai_extract_chunk(docs):
+class EvidenceError(ValueError):
+    """A model quote cannot be tied to the supplied source."""
+
+
+def normalize_quote(text):
+    # Normalize PDF typography only; do not use fuzzy or semantic matching.
+    text = unicodedata.normalize('NFKC', text).replace('\u00ad', '')
+    text = re.sub(r'(?<=\w)-[ \t]*\r?\n[ \t]*(?=\w)', '', text)
+    return re.sub(r'\s+', ' ', text).strip().lower()
+
+
+def _ai_extract_chunk(docs, evidence_feedback=None):
     key=os.getenv('OPENAI_API_KEY','').strip()
     if not key:raise ValueError('API ključ ni nastavljen: nastavite OPENAI_API_KEY v okolju procesa in znova zaženite aplikacijo')
     if sum(len(d["text"]) for d in docs)>100000:
@@ -141,6 +152,9 @@ def _ai_extract_chunk(docs):
       'Pri pogojih, katerih obseg ali izjeme zahtevajo druge dele dokumentacije, uporabi unknown/none. '
       'Merila za točkovanje niso nujno obvezni pogoji upravičenosti. '
       'Če ni dokazov, vrni prazen seznam. Največ 35 pogojev.')
+    if evidence_feedback:
+        prompt += (' Prejšnji poskus je bil zavrnjen: '+evidence_feedback+
+                   '. Ponovno izlušči vse pogoje iz priloženega sklopa. evidence_quote mora biti kratek, neprekinjen, dobesedno prekopiran odlomek iz enega vira in ene strani. Ne parafraziraj in ne združuj odlomkov. Če citata ne moreš prekopirati, pogoja ne navajaj.')
     payload={'model':os.getenv('OPENAI_MODEL','gpt-4.1-mini'),'messages':[{'role':'system','content':prompt},
       {'role':'user','content':context}], 'response_format':{'type':'json_schema','json_schema':{'name':'skp_conditions','strict':True,'schema':schema}},'temperature':0}
     try:
@@ -167,11 +181,11 @@ def _ai_extract_chunk(docs):
         if not item['evidence_quote'].strip():raise ValueError('AI je vrnil pogoj brez citata')
         source=next(d for d in docs if d['url']==item['evidence_url'])
         # Loose whitespace normalization to tolerate PDF line wrapping; never invent evidence.
-        norm=lambda x:re.sub(r'\s+',' ',x).strip().lower()
-        if norm(item['evidence_quote']) not in norm(source['text']):raise ValueError('AI citata ni mogoče potrditi v izvornem dokumentu')
+        norm=normalize_quote
+        if norm(item['evidence_quote']) not in norm(source['text']):raise EvidenceError('AI citata ni mogoče potrditi v izvornem dokumentu')
         matching=[p['number'] for p in source.get('page_texts',[]) if norm(item['evidence_quote']) in norm(p['text'])]
         if source.get('pages') is not None and len(matching)!=1:
-            raise ValueError('AI citata ni mogoče enolično povezati s stranjo PDF')
+            raise EvidenceError('AI citata ni mogoče enolično povezati s stranjo PDF')
         item['document_title']=source['title']
         item['page_number']=matching[0] if matching else None
         results.append(item)
@@ -227,7 +241,13 @@ def ai_extract(docs):
     seen = set()
     for number, chunk in enumerate(chunks, 1):
         try:
-            extracted = _ai_extract_chunk([chunk])
+            try:
+                extracted = _ai_extract_chunk([chunk])
+            except EvidenceError as first_error:
+                # One bounded repair request; still validate every quote against source.
+                extracted = _ai_extract_chunk([chunk], evidence_feedback=str(first_error))
+                if not extracted:
+                    raise EvidenceError('Ponovni poskus ni vrnil potrjenih pogojev; prvotno nepotrjeno pravilo ni bilo shranjeno')
         except ValueError as ex:
             pages = chunk.get('page_texts', [])
             location = f"strani {pages[0]['number']}–{pages[-1]['number']}" if pages else 'spletna objava'
