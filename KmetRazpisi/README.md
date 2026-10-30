@@ -1,3 +1,16 @@
+## Novost 1.3.7 – dvostopenjsko iskanje meril
+
+Pred analizo točkovnikov AI iz ostalih dokumentov izlušči izrecne sklice na
+intervencijo, razdelek ali tabelo. Sklic mora imeti citat iz teh dokumentov.
+Program nato lokalno išče ustrezne naslove v PDF-zaznamkih oziroma oštevilčenih
+naslovih in AI-ju pošlje le izbrane strani, skupna pravila ter razrešene številčne
+sklice. Zaznamki ali naslovi brez jasnih meja pomenijo neznan izbor.
+Celoten dokument meril se zaradi neuspelega izbora NE pošlje AI-ju: preskoči se z
+opozorilom NEPOPOLNA ANALIZA in zahtevo za ročni pregled. PDF se še vedno prenese
+in lokalno prebere za iskanje; to ni OpenAI poraba. Prva stopnja zahteva dodatne
+API-klice na ostale dokumente. Veljavno različico in uporabo sklopa še preverite.
+Minimalni prag se samo izlušči, če je izrecno naveden; ne izračunava se iz tabel.
+
 ## Novost 1.3.6 – minimalni prag točk
 
 Analiza posebej išče izrecno navedene minimalne skupne pragove za izbor vloge.
@@ -54,7 +67,7 @@ celotne nove analize; prejšnji rezultat ostane. Že opravljeni API klici so klj
 poznejši napaki plačljivi. Dolgi dokumenti zato potrebujejo več časa in več API
 klicev. Pogoji ostajajo nepotrjeni, ker se izjeme lahko nahajajo v drugih sklopih.
 
-# Trenutna različica: 1.3.6
+# Trenutna različica: 1.3.7
 
 Različica 1.3.1 popravlja zajem: edini začetni vir je uradni seznam SKP, dejanski razpisi pa so povezane strani pod `/zbirke/javne-objave/`. Informativne strani iz starih pregledov ostanejo v bazi, vendar niso več prikazane med razpisi. Ročno dodajanje preveri prisotnost povezave na seznamu SKP.
 

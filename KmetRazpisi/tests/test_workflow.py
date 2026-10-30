@@ -405,26 +405,65 @@ class MinimumPoints(unittest.TestCase):
                 analyzer.ai_extract(case.docs)
 
 class CriteriaSelection(unittest.TestCase):
+    def fixture(self):
+        from scoring_scope import annotate_pages
+        pages=[dict(number=i,text=f'Text on page {i}') for i in range(1,31)]
+        annotate_pages(pages,[[1,'Skupna pravila',1],[1,'IRP01',3],[1,'IRP02',10],[1,'Skupne opombe',29]])
+        primary=dict(url='https://www.gov.si/call',title='Razpis',text='Za izbor se uporabljajo merila IRP01.',pages=None)
+        criteria=dict(url=URL,title='Merila za izbor operacij',text='all',page_texts=pages,pages=30)
+        return primary,criteria
+
     def test_bookmarked_section_and_common_pages(self):
-        from scoring_scope import annotate_pages,select_documents
-        pages=[dict(number=i,text=f'Text on page {i}') for i in range(1,10)]
-        annotate_pages(pages,[[1,'Skupna pravila',1],[1,'IRP01',3],[1,'IRP02',6],[1,'Skupne opombe',9]])
-        primary=dict(title='Razpis',text='Javni razpis IRP01',pages=None)
-        criteria=dict(title='Merila za izbor operacij',text='all',page_texts=pages,pages=9)
-        chosen,warnings=select_documents([primary,criteria])
-        self.assertEqual(chosen[1]['selected_pages'],[1,2,3,4,5,6,9])
+        from scoring_scope import select_documents
+        primary,criteria=self.fixture()
+        chosen,warnings=select_documents([primary,criteria],[dict(anchor='IRP01',evidence_quote=primary['text'])])
+        self.assertEqual(chosen[1]['selected_pages'],list(range(1,11))+[29,30])
         self.assertTrue(warnings)
 
-    def test_ambiguous_intervention_does_not_drop_pages(self):
+    def test_no_reference_never_sends_full_criteria(self):
         from scoring_scope import select_documents
-        criteria=dict(title='Merila',text='all',page_texts=[dict(number=1,text='all')],pages=1)
-        chosen,warnings=select_documents([dict(title='Razpis',text='IRP01 in IRP02'),criteria])
-        self.assertEqual(chosen[1],criteria)
-        self.assertIn('celoten dokument',warnings[0])
+        primary,criteria=self.fixture()
+        chosen,warnings=select_documents([primary,criteria],[])
+        self.assertEqual(chosen,[primary])
+        self.assertIn('NI poslan AI-ju',warnings[0])
 
-    def test_cross_reference_keeps_full_document(self):
+    def test_unresolved_cross_reference_warns_without_full_document(self):
         from scoring_scope import select_documents
-        criteria=dict(title='Merila',text='all',pages=2,page_texts=[dict(number=1,text='Glej poglavje 4',intervention_codes=['1']),dict(number=2,text='Other',intervention_codes=['2'])])
-        chosen,warnings=select_documents([dict(title='Razpis',text='IRP1'),criteria])
-        self.assertEqual(chosen[1],criteria)
-        self.assertIn('dodatne sklice',warnings[0])
+        primary,criteria=self.fixture();criteria['page_texts'][3]['text']='Glej poglavje 4.2'
+        chosen,warnings=select_documents([primary,criteria],[dict(anchor='IRP01')])
+        self.assertLess(len(chosen[1]['selected_pages']),30)
+        self.assertTrue(any('nerešeni sklici' in w for w in warnings))
+
+    def test_ai_reads_other_documents_for_reference_only(self):
+        primary,criteria=self.fixture()
+        response=Mock(ok=True,json=lambda:{'choices':[{'message':{'content':json.dumps({'references':[{'anchor':'IRP01','evidence_quote':primary['text']}]})}}]})
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('analyzer.requests.post',return_value=response) as request:
+            refs,warnings=analyzer.extract_merit_references([primary,criteria])
+        self.assertEqual(len(refs),1)
+        self.assertEqual(request.call_count,1)
+        self.assertEqual(request.call_args.kwargs['json']['messages'][1]['content'],primary['text'])
+
+    def test_invented_reference_does_not_select_pages(self):
+        primary,criteria=self.fixture()
+        response=Mock(ok=True,json=lambda:{'choices':[{'message':{'content':json.dumps({'references':[{'anchor':'IRP99','evidence_quote':'Use IRP99.'}]})}}]})
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('analyzer.requests.post',return_value=response):
+            refs,warnings=analyzer.extract_merit_references([primary,criteria])
+        self.assertEqual(refs,[])
+        self.assertTrue(warnings)
+
+    def test_no_bookmarks_or_heading_means_no_full_book_fallback(self):
+        from scoring_scope import select_documents
+        primary,criteria=self.fixture()
+        for page in criteria['page_texts']:page.pop('sections',None)
+        chosen,warnings=select_documents([primary,criteria],[dict(anchor='IRP01')])
+        self.assertEqual(chosen,[primary])
+        self.assertIn('NEPOPOLNA ANALIZA',warnings[0])
+
+    def test_pipeline_passes_only_selected_pages_to_condition_extraction(self):
+        primary,criteria=self.fixture()
+        result=analyzer.ExtractionResults();result.append({'label':'Verified'})
+        with patch('analyzer.collect',return_value=([primary,criteria],[],1)),patch('analyzer.extract_merit_references',return_value=([dict(anchor='IRP01')],[])),patch('analyzer.ai_extract',return_value=result) as extract:
+            output=analyzer.analyze(primary['url'])
+        sent=extract.call_args.args[0][1]
+        self.assertNotIn(20,sent['selected_pages'])
+        self.assertEqual(output['documents'][1]['selected_pages'],sent['selected_pages'])
