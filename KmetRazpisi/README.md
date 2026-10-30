@@ -77,3 +77,42 @@ Redno kopirajte `kmetrazpisi.sqlite3` (najbolje, ko aplikacija ne teče). Profil
 - Presečni datumi, logika AND/OR, verzioniranje pravil in zgodovina profila po letih.
 - Varna prijava, HTTPS in gostovanje, če želite dostop od drugod.
 - Razlikovanje razpisov, letnih zbirnih vlog in drugih podpor.
+
+## Nadgradnja analize dokumentacije
+
+Analiza zdaj zahteva OpenAI in PyMuPDF (v `requirements.txt`); način s ključnimi
+besedami se ne uporablja kot nadomestilo za analizo. Na Windows pred zagonom
+nastavite ključ v okolju PowerShell (vrednost vnesite samo lokalno), spremenljivki
+sta `OPENAI_API_KEY` in neobvezna `OPENAI_MODEL` (privzeto `gpt-4.1-mini`).
+Ključa ne zapisujte v projekt. Po spremembi okolja znova zaženite strežnik.
+
+PDF strani se shranijo skupaj s citatom in imenom dokumenta. Citati morajo biti
+prisotni v viru; PDF citat mora pripadati eni določljivi strani. Preusmeritve se
+preverijo pred prenosom. Napaka priloge prepreči zamenjavo prejšnje uspešne analize.
+OCR se poskusi s Tesseract in jezikoma `slv+eng`; za skenirane dokumente namestite
+Tesseract z obema jezikovnima paketoma. Manjkajoč OCR ima posebno diagnostiko.
+
+Trenutne omejitve: največ 8 PDF-jev, 150 strani na PDF, 12 MB na dokument in
+100.000 znakov na analizo. Ob preseganju se analiza ustavi, ne odreže dokumentacije.
+Priloge prek vmesnih strani, DOCX in analiza velikih dokumentov po delih še niso
+podprti. Tudi uspešna analiza ne zagotavlja, da je AI našel vse pravne pogoje.
+Sestavljene in časovno odvisne zahteve sodijo v ročni pregled. Samodejno skrivanje
+je začasno izključeno, ker stari model ne beleži vseh zahtevanih izjem in izključitev.
+Ročno skrivanje ostaja na voljo. Časovna zgodovina profila, potrjevanje AI-pravil,
+samodejno razvrščanje dejanskih razpisov, predpomnjenje AI in celovita avtomatizacija
+so še naslednje faze, ne končane funkcije.
+
+Inicializacija stare baze ne briše več zapisov iz drugih virov. Migracija doda le
+ime dokumenta in številko strani. Pred nadgradnjo naredite varnostno kopijo baze.
+Za razvoj in teste na kopiji lahko nastavite `KMETRAZPISI_DB` na drugo datoteko.
+
+Testi (iz mape KmetRazpisi):
+
+```powershell
+.venv\Scripts\python -m unittest discover -s tests -v
+```
+
+Na Linuxu uporabite `.venv/bin/python`. Testi uporabljajo umetne PDF-je in
+simulirane odgovore OpenAI, brez ključa in omrežja. Preverjajo tudi migracije na
+kopiji obstoječe baze. Izvedeni so bili na Linuxu s Python 3.12; izvajanje na
+Windows in analiza resničnega razpisa z API ključem še nista preverjena.

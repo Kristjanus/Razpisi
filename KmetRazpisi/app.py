@@ -7,8 +7,9 @@ from html import escape
 import requests
 from bs4 import BeautifulSoup
 from analyzer import analyze
+from eligibility import evaluate
 
-ROOT=Path(__file__).parent; DB=ROOT/'kmetrazpisi.sqlite3'; PORT=int(os.getenv('PORT','8765'))
+ROOT=Path(__file__).parent; DB=Path(os.getenv('KMETRAZPISI_DB', str(ROOT/'kmetrazpisi.sqlite3'))); PORT=int(os.getenv('PORT','8765'))
 SOURCES=[('GOV.SI – SKP','https://www.gov.si/zbirke/projekti-in-programi/skupna-kmetijska-politika/javni-razpisi')]
 SKP_PREFIX='https://www.gov.si/zbirke/projekti-in-programi/skupna-kmetijska-politika/'
 DEFAULT={'municipality':'Ivančna Gorica','activity':'mlečna reja','mountain_area':True,'cows_min':20,'cows_max':50,'land_min':30,'land_max':60,'milk_min':200000,'milk_max':300000,'pasture':False,'farm_registered':None,'legal_form':None,'holder_birthdate':None,'omd_points':None,'organic':None,'investment_interests':['mehanizacija','hlev','dobrobit živali','predelava mleka']}
@@ -26,10 +27,10 @@ def conn():
 def init():
  with conn() as c:
   c.executescript(SCHEMA)
+  columns={r['name'] for r in c.execute('PRAGMA table_info(analysis_conditions)')}
+  for name, kind in [('document_title','TEXT'),('page_number','INTEGER')]:
+   if name not in columns:c.execute(f'ALTER TABLE analysis_conditions ADD COLUMN {name} {kind}')
   if not c.execute('SELECT 1 FROM farm').fetchone():c.execute('INSERT INTO farm VALUES(1,?,?)',(json.dumps(DEFAULT,ensure_ascii=False),now()))
-  c.execute("DELETE FROM tenders WHERE source NOT IN ('GOV.SI – SKP','Ročno dodano')")
-  c.execute("DELETE FROM tenders WHERE source='Ročno dodano' AND url NOT LIKE ?",(SKP_PREFIX+'%',))
-  c.execute("DELETE FROM settings WHERE key LIKE 'source:%' AND key != 'source:GOV.SI – SKP'")
   for name,url in SOURCES:c.execute('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)',('source:'+name,url))
 def farm():
  with conn() as c:return json.loads(c.execute('SELECT data FROM farm WHERE id=1').fetchone()['data'])
@@ -37,16 +38,12 @@ def assess(tid,f):
  with conn() as c:rows=[dict(r) for r in c.execute('SELECT * FROM conditions WHERE tender_id=?',(tid,))]
  out=[]
  for r in rows:
-  v=f.get(r['fact_key']);e=json.loads(r['expected']) if r['expected'] else None
-  state='unknown'
-  try:
-   if v is not None and r['operator'] in ('eq','neq','gte','lte','in','contains'):
-    yes={'eq':lambda:v==e,'neq':lambda:v!=e,'gte':lambda:v>=e,'lte':lambda:v<=e,'in':lambda:v in e,'contains':lambda:e in v}[r['operator']]()
-    state='met' if yes else ('unmet_fixed' if r['fixed'] else 'unmet_changeable')
-  except (TypeError,ValueError):pass
+  e=json.loads(r['expected']) if r['expected'] else None
+  state=evaluate({**r,'expected':e},f)
   out.append({**r,'result':state})
- # No auto-hide for unverified conditions, incomplete review, or zero conditions
- hide=bool(rows) and any(r['mandatory'] and r['verified'] and r['result']=='unmet_fixed' for r in out)
+ # Legacy rules lack explicit exclusions, exceptions and reference dates.
+ # Until these are reviewed, retain tenders in the visible list.
+ hide=False
  return {'conditions':out,'auto_hide':hide,'status':'izključen' if hide else ('za preveriti' if any(r['result']!='met' or not r['verified'] for r in out) or not out else 'pogoji izpolnjeni')}
 def automated_assessment(tid,f):
  with conn() as c:
@@ -54,14 +51,8 @@ def automated_assessment(tid,f):
   run=c.execute('SELECT * FROM analysis_runs WHERE tender_id=?',(tid,)).fetchone()
  out=[]
  for r in rows:
-  state='unknown'
-  key=r['fact_key'];v=f.get(key)
-  try:
-   expected=json.loads(r['expected']) if r['expected'] is not None else None
-   if key!='unknown' and r['operator'] in ('eq','neq','gte','lte','in','contains') and v is not None:
-    yes={'eq':lambda:v==expected,'neq':lambda:v!=expected,'gte':lambda:v>=expected,'lte':lambda:v<=expected,'in':lambda:v in expected,'contains':lambda:expected in v}[r['operator']]()
-    state='met' if yes else ('unmet_fixed' if r['fixed'] else 'unmet_changeable')
-  except (TypeError,ValueError,KeyError):pass
+  expected=json.loads(r['expected']) if r['expected'] is not None else None
+  state=evaluate({**r,'expected':expected},f)
   out.append({**r,'result':state,'verified':False})
  return {'conditions':out,'run':dict(run) if run else None,'auto_hide':False}
 
@@ -72,8 +63,8 @@ def analyze_tender(tid):
  with conn() as c:
   c.execute('DELETE FROM analysis_conditions WHERE tender_id=?',(tid,))
   for item in result['conditions']:
-   c.execute('INSERT INTO analysis_conditions(tender_id,label,fact_key,operator,expected,mandatory,fixed,evidence_url,evidence_quote,explanation,analysis_mode,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
-    (tid,item['label'][:350],item['fact_key'],item['operator'],json.dumps(item['expected'],ensure_ascii=False),int(item['mandatory']),int(item['fixed']),item['evidence_url'],item['evidence_quote'][:1500],item['explanation'][:900],result['mode'],now()))
+   c.execute('INSERT INTO analysis_conditions(tender_id,label,fact_key,operator,expected,mandatory,fixed,evidence_url,evidence_quote,explanation,analysis_mode,created_at,document_title,page_number) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+    (tid,item['label'][:350],item['fact_key'],item['operator'],json.dumps(item['expected'],ensure_ascii=False),int(item['mandatory']),int(item['fixed']),item['evidence_url'],item['evidence_quote'][:1500],item['explanation'][:900],result['mode'],now(),item.get('document_title'),item.get('page_number')))
   c.execute('INSERT INTO analysis_runs(tender_id,document_hash,mode,analyzed_at,documents,warnings) VALUES(?,?,?,?,?,?) ON CONFLICT(tender_id) DO UPDATE SET document_hash=excluded.document_hash,mode=excluded.mode,analyzed_at=excluded.analyzed_at,documents=excluded.documents,warnings=excluded.warnings',
     (tid,result['digest'],result['mode'],now(),json.dumps(result['documents'],ensure_ascii=False),json.dumps(result['warnings'],ensure_ascii=False)))
  return {'count':len(result['conditions']),'documents':result['documents'],'warnings':result['warnings'],'mode':result['mode'],'pdf_links_found':result['pdf_links_found']}
@@ -148,7 +139,7 @@ class Handler(BaseHTTPRequestHandler):
   if p=='/api/state':
    f=farm()
    with conn() as c:
-    ts=[dict(r) for r in c.execute('SELECT id,title,url,source,status,deadline,description,first_seen,last_seen,reviewed,hidden_manual FROM tenders ORDER BY first_seen DESC LIMIT 1000')]
+    ts=[dict(r) for r in c.execute("SELECT id,title,url,source,status,deadline,description,first_seen,last_seen,reviewed,hidden_manual FROM tenders WHERE source IN ('GOV.SI – SKP','Ročno dodano') ORDER BY first_seen DESC LIMIT 1000")]
     runs=[dict(r) for r in c.execute('SELECT * FROM monitoring_runs ORDER BY id DESC LIMIT 12')]
     changes=[dict(r) for r in c.execute('SELECT * FROM changes ORDER BY id DESC LIMIT 30')]
    for t in ts:t['assessment']=assess(t['id'],f)
