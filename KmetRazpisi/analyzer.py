@@ -81,7 +81,7 @@ def collect(url):
         href=urljoin(final,a['href']).split('#')[0]
         label=' '.join(a.get_text(' ',strip=True).split())[:150]
         if href in seen or not allowed(href):continue
-        if re.search(r'\.pdf(?:\?|$)',href,re.I) or ('pdf' in label.lower() and 'download' in href.lower()):
+        if re.search(r'\.pdf(?:\?|$)',href,re.I) or a.get('type','').lower()=='application/pdf' or ('pdf' in label.lower() and ('download' in href.lower() or '/assets/' in href.lower())):
             seen.add(href);candidates.append((href,label))
     failures=[]
     if len(candidates)>MAX_DOCS:failures.append('Analiza je nepopolna: več kot 8 PDF-prilog')

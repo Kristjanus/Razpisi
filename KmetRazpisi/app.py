@@ -9,9 +9,10 @@ from bs4 import BeautifulSoup
 from analyzer import analyze
 from eligibility import evaluate
 from version import VERSION
+from skp import SOURCE_URL, load_calls, listed_call
 
 ROOT=Path(__file__).parent; DB=Path(os.getenv('KMETRAZPISI_DB', str(ROOT/'kmetrazpisi.sqlite3'))); PORT=int(os.getenv('PORT','8765'))
-SOURCES=[('GOV.SI – SKP','https://www.gov.si/zbirke/projekti-in-programi/skupna-kmetijska-politika/javni-razpisi')]
+SOURCES=[('GOV.SI – SKP',SOURCE_URL)]
 SKP_PREFIX='https://www.gov.si/zbirke/projekti-in-programi/skupna-kmetijska-politika/'
 DEFAULT={'municipality':'Ivančna Gorica','activity':'mlečna reja','mountain_area':True,'cows_min':20,'cows_max':50,'land_min':30,'land_max':60,'milk_min':200000,'milk_max':300000,'pasture':False,'farm_registered':None,'legal_form':None,'holder_birthdate':None,'omd_points':None,'organic':None,'investment_interests':['mehanizacija','hlev','dobrobit živali','predelava mleka']}
 SCHEMA='''CREATE TABLE IF NOT EXISTS farm(id INTEGER PRIMARY KEY CHECK(id=1),data TEXT NOT NULL,updated_at TEXT);
@@ -82,18 +83,9 @@ def scan():
  for name,url in SOURCES:
   start=now();added=changed=0
   try:
-   response=requests.get(url,timeout=25,headers={'User-Agent':'KmetRazpisi/1.0 (personal monitoring; respectful requests)'})
-   response.raise_for_status();soup=BeautifulSoup(response.text,'html.parser')
-   links={}
-   for a in soup.select('a[href]'):
-    label=' '.join(a.get_text(' ',strip=True).split());href=urllib.parse.urljoin(url,a['href']).split('#')[0]
-    if len(label)<18 or len(label)>230 or not href.startswith('https://'):continue
-    domain=urlparse(href).netloc
-    if domain != 'www.gov.si' or not href.startswith(SKP_PREFIX):continue
-    relevant=any(x in (label+' '+href).lower() for x in ('razpis','poziv','podpor','kmetij','intervencij','pomoč','naložb'))
-    if relevant and href!=url.split('#')[0]:links[href]=label
+   links=load_calls()
    with conn() as c:
-    for href,label in list(links.items())[:180]:
+    for href,label in links.items():
      old=c.execute('SELECT id,title FROM tenders WHERE url=?',(href,)).fetchone()
      if old:
       c.execute('UPDATE tenders SET last_seen=? WHERE id=?',(now(),old['id']))
@@ -140,7 +132,7 @@ class Handler(BaseHTTPRequestHandler):
   if p=='/api/state':
    f=farm()
    with conn() as c:
-    ts=[dict(r) for r in c.execute("SELECT id,title,url,source,status,deadline,description,first_seen,last_seen,reviewed,hidden_manual FROM tenders WHERE source IN ('GOV.SI – SKP','Ročno dodano') ORDER BY first_seen DESC LIMIT 1000")]
+    ts=[dict(r) for r in c.execute("SELECT id,title,url,source,status,deadline,description,first_seen,last_seen,reviewed,hidden_manual FROM tenders WHERE source IN ('GOV.SI – SKP','Ročno dodano') AND url LIKE 'https://www.gov.si/zbirke/javne-objave/%' ORDER BY first_seen DESC LIMIT 1000")]
     runs=[dict(r) for r in c.execute('SELECT * FROM monitoring_runs ORDER BY id DESC LIMIT 12')]
     changes=[dict(r) for r in c.execute('SELECT * FROM changes ORDER BY id DESC LIMIT 30')]
    for t in ts:t['assessment']=assess(t['id'],f)
@@ -161,7 +153,7 @@ class Handler(BaseHTTPRequestHandler):
    if p=='/api/scan':return self._send({'results':scan()})
    if p=='/api/tenders':
     url=b.get('url','').strip()
-    if not url.startswith(SKP_PREFIX):raise ValueError('Dovoljene so samo uradne povezave SKP na GOV.SI')
+    if not listed_call(url):raise ValueError('Povezava mora voditi na konkreten razpis v uradnem seznamu SKP; informativnih strani ni mogoče dodati kot razpis')
     with conn() as c:
      c.execute('INSERT OR IGNORE INTO tenders(title,url,source,status,first_seen,last_seen) VALUES(?,?,?,?,?,?)',(b.get('title') or url,url,'Ročno dodano','nepreverjeno',now(),now()))
     return self._send({'ok':True})

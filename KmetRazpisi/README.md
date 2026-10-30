@@ -1,4 +1,6 @@
-# Trenutna različica: 1.3.0
+# Trenutna različica: 1.3.1
+
+Različica 1.3.1 popravlja zajem: edini začetni vir je uradni seznam SKP, dejanski razpisi pa so povezane strani pod `/zbirke/javne-objave/`. Informativne strani iz starih pregledov ostanejo v bazi, vendar niso več prikazane med razpisi. Ročno dodajanje preveri prisotnost povezave na seznamu SKP.
 
 Različica je prikazana zgoraj desno in ob zagonu v terminalu. Ob njej je stanje prisotnosti API ključa (ne potrjuje veljavnosti ključa). Oznaka načina pri razpisu opisuje zadnjo shranjeno analizo; stari rezultati ostanejo do nove uspešne analize.
 

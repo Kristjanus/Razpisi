@@ -138,8 +138,9 @@ class HTTPWorkflow(unittest.TestCase):
                 self.assertEqual(state['version'],app.VERSION)
                 self.assertIsInstance(state['ai_configured'],bool)
                 self.assertEqual(requests.get(base+'/api/state',timeout=5).json()['farm']['municipality'],'Ivančna Gorica')
-                url=app.SKP_PREFIX+'test/'
-                self.assertEqual(requests.post(base+'/api/tenders',json={'url':url,'title':'Test'},timeout=5).status_code,200)
+                url='https://www.gov.si/zbirke/javne-objave/javni-razpis-test/'
+                with patch('app.listed_call',return_value=True):
+                    self.assertEqual(requests.post(base+'/api/tenders',json={'url':url,'title':'Test'},timeout=5).status_code,200)
                 tid=requests.get(base+'/api/state',timeout=5).json()['tenders'][0]['id']
                 with patch('app.analyze',side_effect=ValueError('API ključ ni nastavljen')):
                     response=requests.post(base+f'/api/tender/{tid}/analyze',json={},timeout=5)
@@ -147,3 +148,43 @@ class HTTPWorkflow(unittest.TestCase):
                 self.assertIn('API ključ ni nastavljen',response.json()['error'])
             finally:
                 server.shutdown();server.server_close();thread.join()
+
+class SKPDiscovery(unittest.TestCase):
+    URL='https://www.gov.si/zbirke/javne-objave/javni-razpis-za-podintervencijo-nalozbe-kmetij-v-okviru-intervencije-nalozbe-v-prilagoditev-na-podnebne-spremembe-pri-trajnih-nasadih-za-leto-2026/'
+
+    def listing(self):
+        return f'''<header><a href="/zbirke/javne-objave/javni-razpis-drugo/">Javni razpis drugo</a></header>
+        <main><a href="{self.URL}">Javni razpis za podintervencijo Naložbe kmetij</a>
+        <a href="{app.SKP_PREFIX}navodila/">Navodila za javni razpis</a>
+        <a href="/zbirke/javne-objave/navodila/">Navodila</a>
+        <a href="https://evil.example/zbirke/javne-objave/javni-razpis/">Javni razpis</a></main>'''.encode()
+
+    def test_only_calls_from_skp_content(self):
+        import skp
+        self.assertEqual(list(skp.discover(self.listing())),[self.URL])
+        with patch('skp.get',return_value=(skp.SOURCE_URL,self.listing(),'text/html')):
+            self.assertTrue(skp.listed_call(self.URL))
+            self.assertFalse(skp.listed_call('https://www.gov.si/zbirke/javne-objave/javni-razpis-drugo/'))
+
+    def test_scan_repeatability_and_no_data_deletion(self):
+        import skp
+        with tempfile.TemporaryDirectory() as tmp, patch.object(app,'DB',Path(tmp)/'scan.sqlite3'), patch('app.notify'):
+            app.init()
+            with app.conn() as c:c.execute("insert into tenders(title,url,source) values('Old information',?,'GOV.SI – SKP')",(app.SKP_PREFIX+'navodila/',))
+            with patch('skp.get',return_value=(skp.SOURCE_URL,self.listing(),'text/html')):
+                self.assertEqual(app.scan()[0]['new'],1)
+                self.assertEqual(app.scan()[0]['new'],0)
+            with app.conn() as c:
+                self.assertEqual(c.execute('select count(*) from tenders').fetchone()[0],2)
+                self.assertEqual(c.execute('select count(*) from tenders where url=?',(self.URL,)).fetchone()[0],1)
+
+    def test_collect_pdf_from_call(self):
+        pdf_url='https://www.gov.si/assets/test/razpis.pdf'
+        html=f'<main><a href="{pdf_url}">Razpisna dokumentacija</a></main>'.encode()
+        with fitz.open() as doc:
+            doc.new_page().insert_text((40,60),'The farm must have at least 15 dairy cows.');pdf=doc.tobytes()
+        with patch('analyzer.get',side_effect=[(self.URL,html,'text/html'),(pdf_url,pdf,'application/pdf')]):
+            docs,errors,count=analyzer.collect(self.URL)
+        self.assertEqual(errors,[])
+        self.assertEqual(count,1)
+        self.assertEqual(docs[1]['page_texts'][0]['number'],1)
