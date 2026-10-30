@@ -291,3 +291,85 @@ class PartialEvidence(unittest.TestCase):
         with patch('analyzer.collect',return_value=(docs,[],1)),patch('analyzer.ai_extract',return_value=results):
             result=analyzer.analyze(URL)
         self.assertIn(results.warnings[0],result['warnings'])
+
+class AnalysisProgress(unittest.TestCase):
+    def wait_finished(self, tid):
+        import time
+        import analysis_jobs
+        end=time.monotonic()+3
+        while time.monotonic()<end:
+            job=analysis_jobs.status(tid)
+            if job['status']!='running':return job
+            time.sleep(.01)
+        self.fail('Analysis worker did not finish')
+
+    def test_background_progress_duplicate_start_and_completion(self):
+        import analysis_jobs
+        import threading
+        entered=threading.Event();release=threading.Event()
+        calls=[]
+        def worker(tid,progress):
+            calls.append(tid);progress(50,'AI: sklop 2/4');entered.set()
+            release.wait(3)
+            return {'count':2}
+        with patch.dict(analysis_jobs._jobs,{},clear=True):
+            try:
+                analysis_jobs.start(123,worker)
+                self.assertTrue(entered.wait(2))
+                job=analysis_jobs.start(123,worker)
+                self.assertEqual(job['percent'],50)
+                self.assertEqual(job['message'],'AI: sklop 2/4')
+                self.assertEqual(calls,[123])
+            finally:release.set()
+            job=self.wait_finished(123)
+            self.assertEqual(job['status'],'done')
+            self.assertEqual(job['percent'],100)
+            self.assertEqual(job['result']['count'],2)
+
+    def test_failure_does_not_claim_100_percent(self):
+        import analysis_jobs
+        def worker(tid,progress):
+            progress(45,'AI');raise ValueError('HTTP 429')
+        with patch.dict(analysis_jobs._jobs,{},clear=True):
+            analysis_jobs.start(124,worker)
+            job=self.wait_finished(124)
+            self.assertEqual(job['status'],'failed')
+            self.assertEqual(job['percent'],45)
+            self.assertIn('HTTP 429',job['error'])
+
+    def test_actual_chunk_callbacks(self):
+        doc=LongDocuments().document();events=[]
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('analyzer._ai_extract_chunk',return_value=[]):
+            analyzer.ai_extract([doc],progress=lambda p,m:events.append((p,m)))
+        count=len(list(analyzer.document_chunks([doc])))
+        self.assertEqual(len(events),count)
+        self.assertIn(f'sklop {count}/{count}',events[-1][1])
+        self.assertEqual([p for p,m in events],sorted(p for p,m in events))
+
+    def test_async_http_routes(self):
+        import threading
+        import requests
+        import analysis_jobs
+        from http.server import ThreadingHTTPServer
+        with tempfile.TemporaryDirectory() as tmp,patch.object(app,'DB',Path(tmp)/'progress.sqlite3'),patch.dict(analysis_jobs._jobs,{},clear=True):
+            app.init()
+            with app.conn() as c:tid=c.execute("insert into tenders(title,url) values('Test',?)",(URL,)).lastrowid
+            server=ThreadingHTTPServer(('127.0.0.1',0),app.Handler)
+            thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+            base=f'http://127.0.0.1:{server.server_port}/api/tender/{tid}'
+            entered=threading.Event();release=threading.Event()
+            def worker(tid,progress):
+                progress(65,'AI: sklop 3/5');entered.set();release.wait(3)
+                return {'count':1}
+            try:
+                with patch('app.analyze_tender',side_effect=worker):
+                    response=requests.post(base+'/analyze-start',json={},timeout=5)
+                    self.assertEqual(response.status_code,202)
+                    self.assertTrue(entered.wait(2))
+                    job=requests.get(base+'/analysis-progress',timeout=5).json()
+                    self.assertEqual(job['status'],'running')
+                    self.assertEqual(job['percent'],65)
+                    release.set();self.wait_finished(tid)
+                    self.assertEqual(requests.get(base+'/analysis-progress',timeout=5).json()['status'],'done')
+            finally:
+                release.set();server.shutdown();server.server_close();thread.join()

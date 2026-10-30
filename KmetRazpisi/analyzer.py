@@ -71,7 +71,9 @@ def extract_html(data):
     text='\n'.join(s.strip() for s in main.get_text('\n').splitlines() if s.strip())
     return text
 
-def collect(url):
+def collect(url, progress=None):
+    progress = progress or (lambda percent, message: None)
+    progress(2, "Prenašam uradno spletno objavo ...")
     final,raw,ctype=get(url)
     if b'%PDF-' in raw[:10]:
         raise ValueError('Glavna povezava naj bo spletna objava razpisa, ne PDF')
@@ -88,7 +90,8 @@ def collect(url):
             seen.add(href);candidates.append((href,label))
     failures=[]
     if len(candidates)>MAX_DOCS:failures.append('Analiza je nepopolna: več kot 8 PDF-prilog')
-    for href,label in candidates[:MAX_DOCS]:
+    for number,(href,label) in enumerate(candidates[:MAX_DOCS],1):
+        progress(5 + 20*(number-1)/max(1,len(candidates)), f"Prenašam in berem PDF {number}/{len(candidates)}: {label or href}")
         try:
             dest,pdf,ct=get(href)
             if not pdf.startswith(b'%PDF-'):raise ValueError('Povezava ni vrnila PDF dokumenta')
@@ -247,7 +250,8 @@ def _page_chunk(doc, pages):
             'text': '\n'.join(f'[STRAN {p["number"]}]\n{p["text"]}' for p in pages)}
 
 
-def ai_extract(docs):
+def ai_extract(docs, progress=None):
+    progress = progress or (lambda percent, message: None)
     # Fail before any paid request if authentication is absent.
     if not os.getenv('OPENAI_API_KEY','').strip():
         raise ValueError('API ključ ni nastavljen: nastavite OPENAI_API_KEY v okolju procesa in znova zaženite aplikacijo')
@@ -255,11 +259,15 @@ def ai_extract(docs):
     results = ExtractionResults()
     seen = set()
     for number, chunk in enumerate(chunks, 1):
+        pages = chunk.get("page_texts", [])
+        location = f"strani {pages[0]['number']}–{pages[-1]['number']}" if pages else "spletna objava"
+        progress(25 + 70*(number-1)/max(1,len(chunks)), f"AI: sklop {number}/{len(chunks)} · {chunk['title']} · {location}")
         try:
             try:
                 extracted = _ai_extract_chunk([chunk])
             except EvidenceError as first_error:
                 # Keep only independently validated conditions, never the bad quote.
+                progress(25 + 70*(number-1)/max(1,len(chunks)), f"AI: sklop {number}/{len(chunks)} · ponavljam preverjanje citatov")
                 extracted = list(first_error.valid_conditions)
                 try:
                     repaired = _ai_extract_chunk([chunk], evidence_feedback=str(first_error))
@@ -285,11 +293,13 @@ def ai_extract(docs):
         raise ValueError('Noben pogoj nima potrjenega citata. '+ ' | '.join(results.warnings))
     return results
 
-def analyze(url):
-    docs,errors,found=collect(url)
+def analyze(url, progress=None):
+    progress = progress or (lambda percent, message: None)
+    docs,errors,found=collect(url, progress=progress)
     if errors:raise ValueError('Analiza je nepopolna: '+' | '.join(errors))
     if not found:raise ValueError('Na uradni strani ni najdenih PDF-prilog; preverite povezavo do razpisne dokumentacije')
-    extracted=ai_extract(docs)
+    extracted=ai_extract(docs, progress=progress)
+    progress(96, "Preverjam rezultate in pripravljam shranjevanje ...")
     if not extracted:raise ValueError('Dokumentacija ne vsebuje dovolj dokazljivih pogojev: AI je vrnil prazen seznam')
     mode='AI' if extracted is not None else 'ključne besede (brez AI)'
     conditions=extracted if extracted is not None else fallback(docs)

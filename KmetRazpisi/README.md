@@ -1,3 +1,15 @@
+## Novost 1.3.5 – napredek analize
+
+Analiza iz vmesnika teče v ozadju. Vrstica napredka prikazuje fazo prenosa PDF-jev,
+trenutni AI-sklop, dokument in strani, ponovni poskus citatov ter zaključek.
+Odstotek temelji na fazah in številu sklopov; ni ocena preostalega časa.
+Med posameznim prenosom, branjem PDF-ja in API klicem lahko ostane nespremenjen.
+Po ponovnem odprtju razpisa se prikaz poveže z analizo, ki še teče.
+Dvojni klik ne zažene dodatne vzporedne analize istega razpisa; hkrati tečeta največ
+dve analizi. Strežnik mora ostati zagnan. Ponovni zagon prekine tekoča opravila;
+že shranjeni podatki ostanejo. API: POST `/api/tender/<id>/analyze-start` in
+GET `/api/tender/<id>/analysis-progress`. Stari sinhroni endpoint je ohranjen.
+
 ## Novost 1.3.4 – nepopolni rezultati z diagnostiko
 
 Nepotrjen citat po enem ponovnem poskusu ne ustavi več drugih sklopov. Shranijo se
@@ -28,7 +40,7 @@ celotne nove analize; prejšnji rezultat ostane. Že opravljeni API klici so klj
 poznejši napaki plačljivi. Dolgi dokumenti zato potrebujejo več časa in več API
 klicev. Pogoji ostajajo nepotrjeni, ker se izjeme lahko nahajajo v drugih sklopih.
 
-# Trenutna različica: 1.3.4
+# Trenutna različica: 1.3.5
 
 Različica 1.3.1 popravlja zajem: edini začetni vir je uradni seznam SKP, dejanski razpisi pa so povezane strani pod `/zbirke/javne-objave/`. Informativne strani iz starih pregledov ostanejo v bazi, vendar niso več prikazane med razpisi. Ročno dodajanje preveri prisotnost povezave na seznamu SKP.
 

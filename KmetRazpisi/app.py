@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from analyzer import analyze
 from eligibility import evaluate
 from version import VERSION
+import analysis_jobs
 from skp import SOURCE_URL, load_calls, listed_call
 
 ROOT=Path(__file__).parent; DB=Path(os.getenv('KMETRAZPISI_DB', str(ROOT/'kmetrazpisi.sqlite3'))); PORT=int(os.getenv('PORT','8765'))
@@ -58,10 +59,10 @@ def automated_assessment(tid,f):
   out.append({**r,'result':state,'verified':False})
  return {'conditions':out,'run':dict(run) if run else None,'auto_hide':False}
 
-def analyze_tender(tid):
+def analyze_tender(tid, progress=None):
  with conn() as c: r=c.execute('SELECT url FROM tenders WHERE id=?',(tid,)).fetchone()
  if not r:raise ValueError('Razpis ne obstaja')
- result=analyze(r['url'])
+ result=analyze(r['url'], progress=progress)
  with conn() as c:
   c.execute('DELETE FROM analysis_conditions WHERE tender_id=?',(tid,))
   for item in result['conditions']:
@@ -137,6 +138,10 @@ class Handler(BaseHTTPRequestHandler):
     changes=[dict(r) for r in c.execute('SELECT * FROM changes ORDER BY id DESC LIMIT 30')]
    for t in ts:t['assessment']=assess(t['id'],f)
    self._send({'version':VERSION,'ai_configured':bool(os.getenv('OPENAI_API_KEY','').strip()),'farm':f,'tenders':ts,'runs':runs,'changes':changes,'sources':SOURCES});return
+  if p.startswith('/api/tender/') and p.endswith('/analysis-progress'):
+   try:tid=int(p.split('/')[3])
+   except (ValueError,IndexError):return self._send({'error':'ID'},400)
+   return self._send(analysis_jobs.status(tid))
   if p.startswith('/api/tender/'):
    try:tid=int(p.split('/')[-1])
    except: return self._send({'error':'ID'},400)
@@ -159,6 +164,10 @@ class Handler(BaseHTTPRequestHandler):
     return self._send({'ok':True})
    if p.startswith('/api/tender/'):
     parts=p.split('/');tid=int(parts[3]);action=parts[4] if len(parts)>4 else ''
+    if action=='analyze-start':
+     with conn() as c:exists=c.execute('SELECT 1 FROM tenders WHERE id=?',(tid,)).fetchone()
+     if not exists:return self._send({'error':'Razpis ne obstaja'},404)
+     return self._send(analysis_jobs.start(tid,analyze_tender),202)
     if action=='analyze':return self._send(analyze_tender(tid))
     if action=='fetch':return self._send(fetch_tender(tid))
     if action=='update':
