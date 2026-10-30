@@ -1,3 +1,13 @@
+## Novost 1.3.4 – nepopolni rezultati z diagnostiko
+
+Nepotrjen citat po enem ponovnem poskusu ne ustavi več drugih sklopov. Shranijo se
+samo pogoji, katerih citati so potrjeni, ob njih pa trajna oznaka NEPOPOLNA ANALIZA
+z dokumentom, sklopom in razlogom izločitve. Nepotrjeni pogoji niso uporabljeni
+pri presoji. Če ni nobenega potrjenega pogoja, se analiza konča z napako.
+Omrežne napake, neveljavni podatki in neprebrane priloge še vedno ustavijo analizo.
+Delni rezultat ni dokaz, da kmetija izpolnjuje vse pogoje. Prejšnje opozorilo o
+ustavitvi pri vsaki napaki citata je za to različico nadomeščeno s tem vedenjem.
+
 ## Novost 1.3.3 – preverjanje citatov
 
 Primerjava citatov upošteva Unicode ligature, mehke vezaje, presledke in besede,
@@ -18,7 +28,7 @@ celotne nove analize; prejšnji rezultat ostane. Že opravljeni API klici so klj
 poznejši napaki plačljivi. Dolgi dokumenti zato potrebujejo več časa in več API
 klicev. Pogoji ostajajo nepotrjeni, ker se izjeme lahko nahajajo v drugih sklopih.
 
-# Trenutna različica: 1.3.3
+# Trenutna različica: 1.3.4
 
 Različica 1.3.1 popravlja zajem: edini začetni vir je uradni seznam SKP, dejanski razpisi pa so povezane strani pod `/zbirke/javne-objave/`. Informativne strani iz starih pregledov ostanejo v bazi, vendar niso več prikazane med razpisi. Ročno dodajanje preveri prisotnost povezave na seznamu SKP.
 

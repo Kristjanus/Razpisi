@@ -121,6 +121,15 @@ def fallback(docs):
 
 class EvidenceError(ValueError):
     """A model quote cannot be tied to the supplied source."""
+    def __init__(self, message, valid_conditions=()):
+        super().__init__(message)
+        self.valid_conditions = list(valid_conditions)
+
+
+class ExtractionResults(list):
+    def __init__(self):
+        super().__init__()
+        self.warnings = []
 
 
 def normalize_quote(text):
@@ -169,6 +178,7 @@ def _ai_extract_chunk(docs, evidence_feedback=None):
         raise ValueError('AI ni vrnil veljavnih strukturiranih podatkov') from ex
     valid_urls={d['url'] for d in docs}
     results=[]
+    rejected=[]
     if len(output['conditions'])>=35:
         raise ValueError('AI je dosegel omejitev 35 pogojev v sklopu; potreben je manjši sklop, rezultat ni shranjen')
     for item in output['conditions']:
@@ -182,13 +192,18 @@ def _ai_extract_chunk(docs, evidence_feedback=None):
         source=next(d for d in docs if d['url']==item['evidence_url'])
         # Loose whitespace normalization to tolerate PDF line wrapping; never invent evidence.
         norm=normalize_quote
-        if norm(item['evidence_quote']) not in norm(source['text']):raise EvidenceError('AI citata ni mogoče potrditi v izvornem dokumentu')
+        if norm(item['evidence_quote']) not in norm(source['text']):
+            rejected.append(f"{item['label'][:100]}: AI citata ni mogoče potrditi v izvornem dokumentu (citat: {item['evidence_quote'][:160]})")
+            continue
         matching=[p['number'] for p in source.get('page_texts',[]) if norm(item['evidence_quote']) in norm(p['text'])]
         if source.get('pages') is not None and len(matching)!=1:
-            raise EvidenceError('AI citata ni mogoče enolično povezati s stranjo PDF')
+            rejected.append(f"{item['label'][:100]}: AI citata ni mogoče enolično povezati s stranjo PDF")
+            continue
         item['document_title']=source['title']
         item['page_number']=matching[0] if matching else None
         results.append(item)
+    if rejected:
+        raise EvidenceError(' | '.join(rejected), results)
     return results
 
 def document_chunks(docs):
@@ -237,17 +252,23 @@ def ai_extract(docs):
     if not os.getenv('OPENAI_API_KEY','').strip():
         raise ValueError('API ključ ni nastavljen: nastavite OPENAI_API_KEY v okolju procesa in znova zaženite aplikacijo')
     chunks = list(document_chunks(docs))
-    results = []
+    results = ExtractionResults()
     seen = set()
     for number, chunk in enumerate(chunks, 1):
         try:
             try:
                 extracted = _ai_extract_chunk([chunk])
             except EvidenceError as first_error:
-                # One bounded repair request; still validate every quote against source.
-                extracted = _ai_extract_chunk([chunk], evidence_feedback=str(first_error))
-                if not extracted:
-                    raise EvidenceError('Ponovni poskus ni vrnil potrjenih pogojev; prvotno nepotrjeno pravilo ni bilo shranjeno')
+                # Keep only independently validated conditions, never the bad quote.
+                extracted = list(first_error.valid_conditions)
+                try:
+                    repaired = _ai_extract_chunk([chunk], evidence_feedback=str(first_error))
+                    extracted.extend(repaired)
+                    # A repair cannot prove it recovered every rejected condition.
+                    results.warnings.append(f"NEPOPOLNA ANALIZA: sklop {number}/{len(chunks)}, {chunk['title']}, {chunk['url']}: prvotni citati so bili zavrnjeni; ponovni poskus je vrnil {len(repaired)} preverjenih pogojev. Preverite dokument ročno.")
+                except EvidenceError as retry_error:
+                    extracted.extend(retry_error.valid_conditions)
+                    results.warnings.append(f"NEPOPOLNA ANALIZA: sklop {number}/{len(chunks)}, {chunk['title']}, {chunk['url']}: {retry_error}. Nepotrjeni pogoji so izločeni; preverite dokument ročno.")
         except ValueError as ex:
             pages = chunk.get('page_texts', [])
             location = f"strani {pages[0]['number']}–{pages[-1]['number']}" if pages else 'spletna objava'
@@ -260,6 +281,8 @@ def ai_extract(docs):
             if identity not in seen:
                 seen.add(identity)
                 results.append(item)
+    if not results and results.warnings:
+        raise ValueError('Noben pogoj nima potrjenega citata. '+ ' | '.join(results.warnings))
     return results
 
 def analyze(url):
@@ -272,4 +295,4 @@ def analyze(url):
     conditions=extracted if extracted is not None else fallback(docs)
     digest=hashlib.sha256((''.join(d['url']+d['text'] for d in docs)).encode()).hexdigest()
     return {'conditions':conditions,'documents':[{'url':d['url'],'title':d['title'],'pages':d['pages'],'length':len(d['text']),'sha256':d.get('sha256')} for d in docs],
-            'warnings':errors + ['Dokumentacija je analizirana po sklopih; pogoji ostajajo nepotrjeni. Preverite povezave med pogoji, izjemami in merili v celotni dokumentaciji.'],'pdf_links_found':found,'mode':mode,'digest':digest}
+            'warnings':errors + getattr(extracted,'warnings',[]) + ['Dokumentacija je analizirana po sklopih; pogoji ostajajo nepotrjeni. Preverite povezave med pogoji, izjemami in merili v celotni dokumentaciji.'],'pdf_links_found':found,'mode':mode,'digest':digest}

@@ -250,7 +250,7 @@ class EvidenceRepair(unittest.TestCase):
     def test_repair_is_bounded(self):
         doc=dict(url=URL,title='Test',text='Exact source',pages=None)
         with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}), patch('analyzer._ai_extract_chunk',side_effect=analyzer.EvidenceError('Invalid quote')) as extract:
-            with self.assertRaisesRegex(ValueError,'sklop 1/1'):
+            with self.assertRaisesRegex(ValueError,'Noben pogoj'):
                 analyzer.ai_extract([doc])
             self.assertEqual(extract.call_count,2)
 
@@ -262,3 +262,32 @@ class EvidenceRepair(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'citata ni mogoče potrditi'):
                 analyzer.ai_extract(case.docs)
             self.assertEqual(request.call_count,2)
+
+class PartialEvidence(unittest.TestCase):
+    def test_invalid_web_quote_does_not_block_valid_pdf(self):
+        web=dict(url='https://www.gov.si/page',title='Uradna spletna objava',text='Web text',pages=None)
+        pdf=dict(url=URL,title='Rules.pdf',text='At least 15 cows.',pages=1,page_texts=[dict(number=7,text='At least 15 cows.')])
+        item=dict(label='Cows',fact_key='cows_min',operator='gte',expected=15,mandatory=True,fixed=False,evidence_url=URL,evidence_quote='At least 15 cows.',explanation='Minimum',page_number=7)
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}), patch('analyzer._ai_extract_chunk',side_effect=[analyzer.EvidenceError('Invalid web quote'),analyzer.EvidenceError('Invalid web quote'),[item]]):
+            result=analyzer.ai_extract([web,pdf])
+        self.assertEqual(result,[item])
+        self.assertIn('NEPOPOLNA ANALIZA',result.warnings[0])
+        self.assertIn('Uradna spletna objava',result.warnings[0])
+
+    def test_mixed_conditions_keep_only_valid_quotes(self):
+        case=Extraction();case.setUp()
+        bad={**case.item,'label':'Invented','evidence_quote':'Not in source'}
+        response=case.response(json.dumps({'conditions':[case.item,bad]}))
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}), patch('analyzer.requests.post',return_value=response):
+            result=analyzer.ai_extract(case.docs)
+        self.assertEqual(len(result),1)
+        self.assertEqual(result[0]['evidence_quote'],'At least 15 cows.')
+        self.assertTrue(result.warnings)
+
+    def test_analyze_exposes_partial_warning(self):
+        results=analyzer.ExtractionResults();results.append({'label':'Verified'})
+        results.warnings=['NEPOPOLNA ANALIZA: missing web evidence']
+        docs=[dict(url=URL,title='PDF',pages=1,text='source')]
+        with patch('analyzer.collect',return_value=(docs,[],1)),patch('analyzer.ai_extract',return_value=results):
+            result=analyzer.analyze(URL)
+        self.assertIn(results.warnings[0],result['warnings'])
