@@ -86,7 +86,7 @@ def collect(url, progress=None):
     candidates=[]
     for a in soup.select('a[href]'):
         href=urljoin(final,a['href']).split('#')[0]
-        label=' '.join(a.get_text(' ',strip=True).split())[:150]
+        label=' '.join(a.get_text(' ',strip=True).split())
         if href in seen or not allowed(href):continue
         if re.search(r'\.pdf(?:\?|$)',href,re.I) or a.get('type','').lower()=='application/pdf' or ('pdf' in label.lower() and ('download' in href.lower() or '/assets/' in href.lower())):
             seen.add(href);candidates.append((href,label))

@@ -1,3 +1,12 @@
+## Novost 1.3.8 – izvor pogojev in izbora meril
+
+Vsak samodejno izluščeni pogoj prikazuje ime izvornega dokumenta kot povezavo,
+številko strani, citat in ime PDF-datoteke. Imena prilog se pri novem zajemu ne
+krajšajo več. Pod analizo je prikaz »Zakaj so izbrane te tabele oziroma razdelki
+meril?«: sklic, izvorni dokument navodila, strani in dobesedni citat, nato izbrane
+strani ciljnega dokumenta meril. Stare analize brez teh metapodatkov zahtevajo
+ponovno analizo; manjkajoči podatki se ne izmišljajo. Nova migracija baze ni potrebna.
+
 ## Novost 1.3.7 – dvostopenjsko iskanje meril
 
 Pred analizo točkovnikov AI iz ostalih dokumentov izlušči izrecne sklice na
@@ -67,7 +76,7 @@ celotne nove analize; prejšnji rezultat ostane. Že opravljeni API klici so klj
 poznejši napaki plačljivi. Dolgi dokumenti zato potrebujejo več časa in več API
 klicev. Pogoji ostajajo nepotrjeni, ker se izjeme lahko nahajajo v drugih sklopih.
 
-# Trenutna različica: 1.3.7
+# Trenutna različica: 1.3.8
 
 Različica 1.3.1 popravlja zajem: edini začetni vir je uradni seznam SKP, dejanski razpisi pa so povezane strani pod `/zbirke/javne-objave/`. Informativne strani iz starih pregledov ostanejo v bazi, vendar niso več prikazane med razpisi. Ročno dodajanje preveri prisotnost povezave na seznamu SKP.
 

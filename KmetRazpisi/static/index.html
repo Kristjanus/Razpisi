@@ -27,6 +27,22 @@ function back(){show('tenders')}
 async function saveTender(){try{await api('tender/'+current.tender.id+'/update',{status:$('dStatus').value,deadline:$('dDeadline').value||null,description:$('dDescription').value,reviewed:$('dReviewed').checked?1:0,hidden_manual:$('dHidden').checked?1:0});await load();await openTender(current.tender.id);msg('Podatki shranjeni.')}catch(e){msg(e.message,true)}}
 async function fetchTender(){try{let d=await api('tender/'+current.tender.id+'/fetch',{});await openTender(current.tender.id);msg('Besedilo preneseno ('+d.length+' znakov). '+(d.changed?'Zaznana sprememba!':''))}catch(e){msg(e.message,true)}}
 async function addCondition(){try{let expected=JSON.parse($('cExpected').value);await api('tender/'+current.tender.id+'/conditions',{label:$('cLabel').value,fact_key:$('cKey').value,operator:$('cOperator').value,expected,mandatory:$('cMandatory').checked,fixed:$('cFixed').checked,verified:$('cVerified').checked,evidence_url:$('cEvidenceUrl').value,evidence_quote:$('cQuote').value});await load();await openTender(current.tender.id);msg('Pogoj dodan.')}catch(e){msg('Neveljaven pogoj: '+e.message,true)}}
+function sourceDocumentLink(url,title,pages=[]){
+ let filename='';try{filename=decodeURIComponent(new URL(url).pathname.split('/').pop()||'')}catch(e){}
+ const name=title||filename||'Ime dokumenta ni shranjeno';
+ const pageText=pages.length?' · '+(pages.length===1?'stran ':'strani ')+pages.join(', '):'';
+ return '<a target="_blank" rel="noopener noreferrer" href="'+esc(url)+(pages.length?'#page='+pages[0]:'')+'">'+esc(name)+' ↗</a>'+esc(pageText)+(filename&&filename!==name?' <span class="muted">('+esc(filename)+')</span>':'');
+}
+function renderMeritReferences(docs){
+ const criteria=docs.filter(d=>Array.isArray(d.selection_references)&&d.selection_references.length);
+ if(!criteria.length)return '<div class="condition"><h3>Vir izbora tabel meril</h3><p>Dokazljiv sklic na relevantne tabele ni shranjen. Pri starejših rezultatih ponovite analizo; sicer preverite opozorila.</p></div>';
+ return '<div class="condition"><h3>Zakaj so izbrane te tabele oziroma razdelki meril?</h3>'+criteria.map(d=>{
+  const seen=new Set();
+  return '<h4>'+esc(d.title)+'</h4><p class="small">Izbrane strani meril: '+esc((d.selected_pages||[]).join(', ')||'Ni shranjeno')+'</p>'+d.selection_references.filter(r=>{const key=JSON.stringify([r.source_url,r.anchor,r.evidence_quote]);if(seen.has(key))return false;seen.add(key);return true}).map(r=>
+   '<div class="condition"><p><strong>Sklic na razdelek/tabelo: '+esc(r.anchor)+'</strong></p><p>Navodilo je iz dokumenta: '+sourceDocumentLink(r.source_url,r.source_document,r.source_pages||[])+'</p><div class="pre">'+esc(r.evidence_quote)+'</div></div>'
+  ).join('');
+ }).join('')+'<p class="muted">Citat potrjuje izvor sklica. Veljavnost različice meril in sklopa še preverite.</p></div>';
+}
 function renderMinimumPoints(conditions,hasRun){
  const thresholds=conditions.filter(c=>c.fact_key==='minimum_selection_points');
  $('minimumPoints').innerHTML='<h3>Minimalno število točk za izbor</h3>'+
@@ -44,9 +60,9 @@ function renderAutomatic(a){
  let docs=[];let warnings=[];try{docs=JSON.parse(run.documents||'[]');warnings=JSON.parse(run.warnings||'[]')}catch(e){}
  $('autoMeta').innerHTML=(run.mode!=='AI'?'<p class="warning">To je shranjen rezultat stare analize brez AI. Za novo analizo kliknite »Analiziraj dokumentacijo«. Ob napaki se ta prejšnji rezultat ohrani.</p>':'')+'<p>Način zadnje shranjene analize: <strong>'+esc(run.mode)+'</strong> · analizirano '+esc(run.analyzed_at)+' · '+conditions.length+' zaznanih pogojev</p>'+
  '<p>Dokumenti: '+docs.map(d=>'<a target="_blank" rel="noopener noreferrer" href="'+esc(d.url)+'">'+esc(d.title)+'</a>'+(d.selected_pages?' (AI: '+d.selected_pages.length+'/'+d.pages+' strani; strani '+esc(d.selected_pages.join(', '))+')':'')).join(' · ')+'</p>'+
- (warnings.length?'<p class="warning">Opozorila: '+esc(warnings.join(' | '))+'</p>':'');
+ (warnings.length?'<p class="warning">Opozorila: '+esc(warnings.join(' | '))+'</p>':'')+renderMeritReferences(docs);
  const status={met:'✓ Podatek se ujema',unmet_fixed:'✗ Podatek se ne ujema',unmet_changeable:'✗ Podatek se ne ujema',unknown:'? Manjka natančen podatek',manual_review:'Za ročni pregled'};
- $('autoConditions').innerHTML=conditions.map(c=>'<div class="condition"><div class="row"><strong>'+esc(c.label)+'</strong><span class="tag">'+esc(status[c.result]||'Neznano')+'</span></div><p class="warning small">⚠ Samodejno zaznano – ni potrjen pravni pogoj; rezultat je informativen.</p><p class="small">'+esc(c.explanation||'')+'</p><p class="small">Vir: <a target="_blank" rel="noopener noreferrer" href="'+esc(c.evidence_url)+'">Uradni dokument ↗</a></p><div class="pre">'+esc(c.evidence_quote||'')+'</div><p class="muted">'+esc(c.document_title||'')+(c.page_number?' · stran '+c.page_number:'')+'</p></div>').join('')||'<p class="muted">Ni bilo mogoče zanesljivo izluščiti pogojev. Odprite uradno dokumentacijo in jih preverite ročno.</p>';
+ $('autoConditions').innerHTML=conditions.map(c=>'<div class="condition"><div class="row"><strong>'+esc(c.label)+'</strong><span class="tag">'+esc(status[c.result]||'Neznano')+'</span></div><p class="warning small">⚠ Samodejno zaznano – ni potrjen pravni pogoj; rezultat je informativen.</p><p class="small">'+esc(c.explanation||'')+'</p><p class="small">Izvorni dokument: '+sourceDocumentLink(c.evidence_url,c.document_title||docs.find(d=>d.url===c.evidence_url)?.title,c.page_number?[c.page_number]:[])+'</p><div class="pre">'+esc(c.evidence_quote||'')+'</div></div>').join('')||'<p class="muted">Ni bilo mogoče zanesljivo izluščiti pogojev. Odprite uradno dokumentacijo in jih preverite ročno.</p>';
 }
 function displayProgress(job){
  $('analysisProgress').classList.remove('hidden');
