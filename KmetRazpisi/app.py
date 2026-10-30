@@ -8,6 +8,7 @@ import requests
 from bs4 import BeautifulSoup
 from analyzer import analyze
 from eligibility import evaluate
+from version import VERSION
 
 ROOT=Path(__file__).parent; DB=Path(os.getenv('KMETRAZPISI_DB', str(ROOT/'kmetrazpisi.sqlite3'))); PORT=int(os.getenv('PORT','8765'))
 SOURCES=[('GOV.SI – SKP','https://www.gov.si/zbirke/projekti-in-programi/skupna-kmetijska-politika/javni-razpisi')]
@@ -135,7 +136,7 @@ class Handler(BaseHTTPRequestHandler):
  def do_GET(self):
   p=urlparse(self.path).path
   if p=='/':
-   raw=HTML.read_bytes();self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw);return
+   raw=HTML.read_text(encoding='utf-8').replace('{{APP_VERSION}}', VERSION).encode('utf-8');self.send_response(200);self.send_header('Cache-Control','no-store');self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw);return
   if p=='/api/state':
    f=farm()
    with conn() as c:
@@ -143,7 +144,7 @@ class Handler(BaseHTTPRequestHandler):
     runs=[dict(r) for r in c.execute('SELECT * FROM monitoring_runs ORDER BY id DESC LIMIT 12')]
     changes=[dict(r) for r in c.execute('SELECT * FROM changes ORDER BY id DESC LIMIT 30')]
    for t in ts:t['assessment']=assess(t['id'],f)
-   self._send({'farm':f,'tenders':ts,'runs':runs,'changes':changes,'sources':SOURCES});return
+   self._send({'version':VERSION,'ai_configured':bool(os.getenv('OPENAI_API_KEY','').strip()),'farm':f,'tenders':ts,'runs':runs,'changes':changes,'sources':SOURCES});return
   if p.startswith('/api/tender/'):
    try:tid=int(p.split('/')[-1])
    except: return self._send({'error':'ID'},400)
@@ -189,4 +190,4 @@ if __name__=='__main__':
  import sys
  if len(sys.argv)>1 and sys.argv[1]=='scan':print(json.dumps(scan(),ensure_ascii=False,indent=2))
  else:
-  print(f'KmetRazpisi: http://127.0.0.1:{PORT}');ThreadingHTTPServer(('127.0.0.1',PORT),Handler).serve_forever()
+  print(f'KmetRazpisi v{VERSION}: http://127.0.0.1:{PORT}');ThreadingHTTPServer(('127.0.0.1',PORT),Handler).serve_forever()

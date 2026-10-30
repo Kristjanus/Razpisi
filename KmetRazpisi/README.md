@@ -1,3 +1,7 @@
+# Trenutna različica: 1.3.0
+
+Različica je prikazana zgoraj desno in ob zagonu v terminalu. Ob njej je stanje prisotnosti API ključa (ne potrjuje veljavnosti ključa). Oznaka načina pri razpisu opisuje zadnjo shranjeno analizo; stari rezultati ostanejo do nove uspešne analize.
+
 # KmetRazpisi – zasebna aplikacija za spremljanje kmetijskih razpisov
 
 Prva delujoča različica za eno mlečno kmetijo. Podatki se hranijo **lokalno** v `kmetrazpisi.sqlite3`.

@@ -130,7 +130,13 @@ class HTTPWorkflow(unittest.TestCase):
             thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
             base='http://127.0.0.1:'+str(server.server_port)
             try:
-                self.assertEqual(requests.get(base,timeout=5).status_code,200)
+                page=requests.get(base,timeout=5)
+                self.assertEqual(page.status_code,200)
+                self.assertIn('Različica '+app.VERSION,page.text)
+                self.assertNotIn('{{APP_VERSION}}',page.text)
+                state=requests.get(base+'/api/state',timeout=5).json()
+                self.assertEqual(state['version'],app.VERSION)
+                self.assertIsInstance(state['ai_configured'],bool)
                 self.assertEqual(requests.get(base+'/api/state',timeout=5).json()['farm']['municipality'],'Ivančna Gorica')
                 url=app.SKP_PREFIX+'test/'
                 self.assertEqual(requests.post(base+'/api/tenders',json={'url':url,'title':'Test'},timeout=5).status_code,200)
