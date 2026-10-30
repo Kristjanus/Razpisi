@@ -1,4 +1,15 @@
-# Trenutna različica: 1.3.1
+## Novost 1.3.2 – daljši PDF-ji
+
+Odpravljena je omejitev 150 strani. PDF do 1.000 strani se v celoti prebere in
+analizira v sklopih do 10 strani oziroma 24.000 znakov. Sosednji sklopi se po
+možnosti prekrivajo za eno stran. Predolge strani in spletno besedilo se razdelijo
+v prekrivajoča besedilna okna. Citati ohranijo izvirno številko strani, enaki pogoji
+iz prekrivajočih sklopov se združijo. Napaka katerega koli sklopa ustavi shranjevanje
+celotne nove analize; prejšnji rezultat ostane. Že opravljeni API klici so kljub
+poznejši napaki plačljivi. Dolgi dokumenti zato potrebujejo več časa in več API
+klicev. Pogoji ostajajo nepotrjeni, ker se izjeme lahko nahajajo v drugih sklopih.
+
+# Trenutna različica: 1.3.2
 
 Različica 1.3.1 popravlja zajem: edini začetni vir je uradni seznam SKP, dejanski razpisi pa so povezane strani pod `/zbirke/javne-objave/`. Informativne strani iz starih pregledov ostanejo v bazi, vendar niso več prikazane med razpisi. Ročno dodajanje preveri prisotnost povezave na seznamu SKP.
 
@@ -98,9 +109,8 @@ preverijo pred prenosom. Napaka priloge prepreči zamenjavo prejšnje uspešne a
 OCR se poskusi s Tesseract in jezikoma `slv+eng`; za skenirane dokumente namestite
 Tesseract z obema jezikovnima paketoma. Manjkajoč OCR ima posebno diagnostiko.
 
-Trenutne omejitve: največ 8 PDF-jev, 150 strani na PDF, 12 MB na dokument in
-100.000 znakov na analizo. Ob preseganju se analiza ustavi, ne odreže dokumentacije.
-Priloge prek vmesnih strani, DOCX in analiza velikih dokumentov po delih še niso
+Trenutne omejitve: največ 8 PDF-jev, 1.000 strani na PDF, 12 MB na dokument. Ob preseganju se analiza ustavi, ne odreže dokumentacije.
+Priloge prek vmesnih strani in DOCX še niso
 podprti. Tudi uspešna analiza ne zagotavlja, da je AI našel vse pravne pogoje.
 Sestavljene in časovno odvisne zahteve sodijo v ročni pregled. Samodejno skrivanje
 je začasno izključeno, ker stari model ne beleži vseh zahtevanih izjem in izključitev.

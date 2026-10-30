@@ -188,3 +188,48 @@ class SKPDiscovery(unittest.TestCase):
         self.assertEqual(errors,[])
         self.assertEqual(count,1)
         self.assertEqual(docs[1]['page_texts'][0]['number'],1)
+
+class LongDocuments(unittest.TestCase):
+    def test_reads_beyond_old_150_page_limit(self):
+        with fitz.open() as document:
+            for number in range(1, 153):
+                document.new_page().insert_text((40,60),f'Page {number}: The farm must submit required evidence.')
+            raw=document.tobytes()
+        pages=analyzer.read_pdf(raw)
+        self.assertEqual(len(pages),152)
+        self.assertIn('Page 152:',pages[-1]['text'])
+
+    def document(self):
+        pages=[{'number':n,'text':f'Condition on original page {n}. '+('Farm data. '*600)} for n in range(1,153)]
+        return dict(url=URL,title='Long.pdf',pages=152,page_texts=pages,text='\n'.join(p['text'] for p in pages))
+
+    def test_all_pages_covered_and_requests_bounded(self):
+        doc=self.document()
+        chunks=list(analyzer.document_chunks([doc]))
+        self.assertGreater(len(chunks),1)
+        self.assertEqual({p['number'] for c in chunks for p in c['page_texts']},set(range(1,153)))
+        for chunk in chunks:
+            self.assertLessEqual(len(chunk['page_texts']),10)
+            self.assertLess(len(chunk['text']),25000)
+        self.assertEqual(chunks[0]['page_texts'][-1]['number'],chunks[1]['page_texts'][0]['number'])
+
+    def test_oversize_page_is_not_truncated(self):
+        text='A'*25000+'MIDDLE'+'B'*25000+'FINAL'
+        doc=dict(url=URL,title='Long page',pages=1,page_texts=[dict(number=151,text=text)],text=text)
+        chunks=list(analyzer.document_chunks([doc]))
+        self.assertTrue(any('MIDDLE' in c['text'] for c in chunks))
+        self.assertTrue(any('FINAL' in c['text'] for c in chunks))
+        self.assertTrue(all(c['page_texts'][0]['number']==151 for c in chunks))
+
+    def test_merge_preserves_late_page_and_removes_overlap_duplicates(self):
+        item=dict(label='Requirement',fact_key='unknown',operator='none',expected=None,mandatory=False,fixed=False,evidence_url=URL,evidence_quote='Unique quote',explanation='Review',page_number=151,document_title='Long.pdf')
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}), patch('analyzer._ai_extract_chunk',return_value=[item]) as extract:
+            result=analyzer.ai_extract([self.document()])
+        self.assertGreater(extract.call_count,1)
+        self.assertEqual(len(result),1)
+        self.assertEqual(result[0]['page_number'],151)
+
+    def test_later_chunk_failure_reports_progress_instead_of_partial_result(self):
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}), patch('analyzer._ai_extract_chunk',side_effect=[[],ValueError('HTTP 429')]):
+            with self.assertRaisesRegex(ValueError,r'sklop 2/.*Long.pdf.*HTTP 429'):
+                analyzer.ai_extract([self.document()])
