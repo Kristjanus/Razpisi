@@ -373,3 +373,58 @@ class AnalysisProgress(unittest.TestCase):
                     self.assertEqual(requests.get(base+'/analysis-progress',timeout=5).json()['status'],'done')
             finally:
                 release.set();server.shutdown();server.server_close();thread.join()
+
+class MinimumPoints(unittest.TestCase):
+    def test_explicit_threshold_is_separate_from_farm_eligibility(self):
+        quote='Vloga mora doseči najmanj 30 točk.'
+        docs=[dict(url=URL,title='Razpis',pages=1,text=quote,page_texts=[dict(number=12,text=quote)])]
+        item=dict(label='Minimalni prag za sklop A',fact_key='minimum_selection_points',operator='gte',expected=30,mandatory=True,fixed=True,evidence_url=URL,evidence_quote=quote,explanation='Velja za sklop A.')
+        case=Extraction();response=case.response(json.dumps({'conditions':[item]}))
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('analyzer.requests.post',return_value=response):
+            result=analyzer.ai_extract(docs)
+        self.assertEqual(result[0]['expected'],30)
+        self.assertEqual(result[0]['page_number'],12)
+        self.assertFalse(result[0]['mandatory'])
+        self.assertFalse(result[0]['fixed'])
+        self.assertEqual(evaluate(result[0],{'minimum_selection_points':100}),'manual_review')
+
+    def test_invalid_threshold_is_rejected(self):
+        case=Extraction();case.setUp()
+        case.item.update(fact_key='minimum_selection_points',expected=-10)
+        response=case.response(json.dumps({'conditions':[case.item]}))
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('analyzer.requests.post',return_value=response):
+            with self.assertRaisesRegex(ValueError,'neveljaven minimalni prag'):
+                analyzer.ai_extract(case.docs)
+
+    def test_invented_threshold_without_source_quote_is_not_accepted(self):
+        case=Extraction();case.setUp()
+        case.item.update(fact_key='minimum_selection_points',expected=30,evidence_quote='At least 30 points.')
+        response=case.response(json.dumps({'conditions':[case.item]}))
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('analyzer.requests.post',return_value=response):
+            with self.assertRaisesRegex(ValueError,'Noben pogoj'):
+                analyzer.ai_extract(case.docs)
+
+class CriteriaSelection(unittest.TestCase):
+    def test_bookmarked_section_and_common_pages(self):
+        from scoring_scope import annotate_pages,select_documents
+        pages=[dict(number=i,text=f'Text on page {i}') for i in range(1,10)]
+        annotate_pages(pages,[[1,'Skupna pravila',1],[1,'IRP01',3],[1,'IRP02',6],[1,'Skupne opombe',9]])
+        primary=dict(title='Razpis',text='Javni razpis IRP01',pages=None)
+        criteria=dict(title='Merila za izbor operacij',text='all',page_texts=pages,pages=9)
+        chosen,warnings=select_documents([primary,criteria])
+        self.assertEqual(chosen[1]['selected_pages'],[1,2,3,4,5,6,9])
+        self.assertTrue(warnings)
+
+    def test_ambiguous_intervention_does_not_drop_pages(self):
+        from scoring_scope import select_documents
+        criteria=dict(title='Merila',text='all',page_texts=[dict(number=1,text='all')],pages=1)
+        chosen,warnings=select_documents([dict(title='Razpis',text='IRP01 in IRP02'),criteria])
+        self.assertEqual(chosen[1],criteria)
+        self.assertIn('celoten dokument',warnings[0])
+
+    def test_cross_reference_keeps_full_document(self):
+        from scoring_scope import select_documents
+        criteria=dict(title='Merila',text='all',pages=2,page_texts=[dict(number=1,text='Glej poglavje 4',intervention_codes=['1']),dict(number=2,text='Other',intervention_codes=['2'])])
+        chosen,warnings=select_documents([dict(title='Razpis',text='IRP1'),criteria])
+        self.assertEqual(chosen[1],criteria)
+        self.assertIn('dodatne sklice',warnings[0])

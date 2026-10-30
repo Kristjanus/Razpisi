@@ -1,3 +1,17 @@
+## Novost 1.3.6 – minimalni prag točk
+
+Analiza posebej išče izrecno navedene minimalne skupne pragove za izbor vloge.
+V podrobnostih razpisa so prikazani ločeno s citatom, stranjo, opisom sklopa in
+opozorilom za človeško potrditev. Najmanj X in več kot X sta različni zahtevi.
+Različni pragovi se ne seštevajo in ne združujejo samodejno; manjkajoč prag je
+neznan, ne nič točk. AI ne sme sklepati iz točkovnih tabel ali OMD točk.
+Kontekst spletne objave pomaga omejiti razlago na konkretni razpis, vendar
+veljavnost razdelka skupnih meril še zahteva ročni pregled. Izbor strani skupnih meril je previden: ob eni jasni oznaki IRP v osnovni
+dokumentaciji in ustreznih PDF-zaznamkih se ohranijo ustrezni razdelek, mejne in
+skupne strani. Pri več oznakah, manjkajočih zaznamkih ali dodatnih sklicih se
+prebere celoten dokument z opozorilom. Različico in sklop je treba potrditi ročno. Možne točke kmetije niso izračunane;
+minimalni prag ni uporabljen za samodejno skrivanje. Stare analize ponovite.
+
 ## Novost 1.3.5 – napredek analize
 
 Analiza iz vmesnika teče v ozadju. Vrstica napredka prikazuje fazo prenosa PDF-jev,
@@ -40,7 +54,7 @@ celotne nove analize; prejšnji rezultat ostane. Že opravljeni API klici so klj
 poznejši napaki plačljivi. Dolgi dokumenti zato potrebujejo več časa in več API
 klicev. Pogoji ostajajo nepotrjeni, ker se izjeme lahko nahajajo v drugih sklopih.
 
-# Trenutna različica: 1.3.5
+# Trenutna različica: 1.3.6
 
 Različica 1.3.1 popravlja zajem: edini začetni vir je uradni seznam SKP, dejanski razpisi pa so povezane strani pod `/zbirke/javne-objave/`. Informativne strani iz starih pregledov ostanejo v bazi, vendar niso več prikazane med razpisi. Ročno dodajanje preveri prisotnost povezave na seznamu SKP.
 

@@ -6,6 +6,8 @@ def evaluate(rule, farm):
     key = rule['fact_key']
     op = rule['operator']
     expected = rule['expected']
+    if key == 'minimum_selection_points':
+        return 'manual_review'  # Possible points are deliberately not calculated yet.
     if rule.get('reference_date') or rule.get('exceptions'):
         return 'manual_review'
     if key == 'unknown' or op not in ('eq', 'neq', 'gte', 'lte', 'in', 'contains'):

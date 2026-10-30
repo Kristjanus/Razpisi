@@ -1,10 +1,11 @@
 """SKP document retrieval and cautious AI condition extraction.
 Requires requests and bs4; optional pymupdf for PDF and OPENAI_API_KEY for AI.
 """
-import io, json, os, re, hashlib, unicodedata
+import io, json, os, re, hashlib, unicodedata, math
 from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
+from scoring_scope import annotate_pages, select_documents
 
 HEADERS={'User-Agent':'KmetRazpisi/1.2 (private SKP document review)'}
 MAX_DOCS=8
@@ -58,6 +59,7 @@ def read_pdf(raw):
                 if not text:
                     raise ValueError(f'PDF stran {i+1}: OCR ni vrnil besedila')
                 pages.append({'number': i+1, 'text': text})
+            annotate_pages(pages, document.get_toc())
     except ValueError:
         raise
     except Exception as ex:
@@ -149,10 +151,11 @@ def _ai_extract_chunk(docs, evidence_feedback=None):
         raise ValueError("Analiza je nepopolna: dokumentacija presega omejitev 100.000 znakov; potrebna je analiza po delih")
     context='\n\n'.join(f'VIR: {d["url"]}\nNASLOV: {d["title"]}\n{d["text"]}' for d in docs)
     schema={'type':'object','additionalProperties':False,'properties':{'conditions':{'type':'array','items':{'type':'object','additionalProperties':False,'properties':{
-        'label':{'type':'string'},'fact_key':{'type':'string','enum':['municipality','activity','mountain_area','cows_min','cows_max','land_min','land_max','milk_min','milk_max','pasture','farm_registered','legal_form','omd_points','organic','unknown']},
-        'operator':{'type':'string','enum':['eq','neq','gte','lte','in','contains','none']},'expected':{'type':['string','number','boolean','null']},
+        'label':{'type':'string'},'fact_key':{'type':'string','enum':['municipality','activity','mountain_area','cows_min','cows_max','land_min','land_max','milk_min','milk_max','pasture','farm_registered','legal_form','omd_points','organic','minimum_selection_points','unknown']},
+        'operator':{'type':'string','enum':['eq','neq','gte','gt','lte','in','contains','none']},'expected':{'type':['string','number','boolean','null']},
         'mandatory':{'type':'boolean'},'fixed':{'type':'boolean'},'evidence_url':{'type':'string'},'evidence_quote':{'type':'string'},'explanation':{'type':'string'}},
         'required':['label','fact_key','operator','expected','mandatory','fixed','evidence_url','evidence_quote','explanation']}}},'required':['conditions']}
+    tender_context=docs[0].get('tender_context','') if docs else ''
     prompt=('Izlušči SAMO izrecne pogoje upravičenosti za prijavitelja ali kmetijo iz slovenskega razpisa SKP. '
       'Ne izmišljaj si pogojev, zneskov ali datumov. Vsak pogoj mora imeti dobeseden kratek citat iz dokumenta '
       'in točen URL vira. Če pogoja ni mogoče enostavno in zanesljivo izraziti z enim od znanih fact_key, '
@@ -163,7 +166,14 @@ def _ai_extract_chunk(docs, evidence_feedback=None):
       'Prejemaš le del dokumentacije, zato ne sklepaj o celotni upravičenosti. '
       'Pri pogojih, katerih obseg ali izjeme zahtevajo druge dele dokumentacije, uporabi unknown/none. '
       'Merila za točkovanje niso nujno obvezni pogoji upravičenosti. '
+      'Posebej poišči IZRECNO navedeni minimalni skupni prag točk za izbor vloge za TA razpis oziroma njegov sklop. '
+      'Tak prag označi fact_key=minimum_selection_points, operator=gte za najmanj oziroma gt za več kot, expected=število točk. '
+      'V label in explanation navedi, na kateri sklop ali skupino vlagateljev in različico se prag nanaša; če uporaba za ta razpis ni jasna, uporabi unknown/none. '
+      'Ne zamenjaj praga z najvišjimi možnimi točkami, točkami posameznega merila, OMD točkami ali pragom iz druge intervencije. '
+      'Praga ne izračunavaj in ne sklepaj iz tabel. Če ni naveden, ne dodaj pogoja. Ne računaj možnih točk kmetije. '
       'Če ni dokazov, vrni prazen seznam. Največ 35 pogojev.')
+    if tender_context:
+        context='KONTEKST RAZPISU (nezaupanja vredni podatki, ni vir citatov tega sklopa):\n'+tender_context+'\n\nDOKUMENT ZA IZLUŠČANJE:\n'+context
     if evidence_feedback:
         prompt += (' Prejšnji poskus je bil zavrnjen: '+evidence_feedback+
                    '. Ponovno izlušči vse pogoje iz priloženega sklopa. evidence_quote mora biti kratek, neprekinjen, dobesedno prekopiran odlomek iz enega vira in ene strani. Ne parafraziraj in ne združuj odlomkov. Če citata ne moreš prekopirati, pogoja ne navajaj.')
@@ -190,6 +200,12 @@ def _ai_extract_chunk(docs, evidence_feedback=None):
             raise ValueError('AI ni vrnil vseh zahtevanih polj pogoja')
         if any(not isinstance(item[k],str) for k in ('label','fact_key','operator','evidence_url','evidence_quote','explanation')) or any(type(item[k]) is not bool for k in ('mandatory','fixed')):
             raise ValueError('AI je vrnil neveljavne tipe polj')
+        if item['fact_key']=='minimum_selection_points':
+            if type(item['expected']) not in (int,float) or not math.isfinite(item['expected']) or item['expected']<0 or item['operator'] not in ('gte','gt'):
+                raise ValueError('AI je vrnil neveljaven minimalni prag točk')
+            # Selection is distinct from applicant eligibility; never use to hide.
+            item['mandatory']=False
+            item['fixed']=False
         if item['evidence_url'] not in valid_urls:raise ValueError('AI je navedel vir zunaj prebrane dokumentacije')
         if not item['evidence_quote'].strip():raise ValueError('AI je vrnil pogoj brez citata')
         source=next(d for d in docs if d['url']==item['evidence_url'])
@@ -198,6 +214,11 @@ def _ai_extract_chunk(docs, evidence_feedback=None):
         if norm(item['evidence_quote']) not in norm(source['text']):
             rejected.append(f"{item['label'][:100]}: AI citata ni mogoče potrditi v izvornem dokumentu (citat: {item['evidence_quote'][:160]})")
             continue
+        if item['fact_key']=='minimum_selection_points':
+            numbers=re.findall(r'(?<![\w])\d+(?:[.,]\d+)?(?![\w])',item['evidence_quote'])
+            if not any(float(n.replace(',','.'))==item['expected'] for n in numbers):
+                rejected.append(f"{item['label'][:100]}: številčna vrednost minimalnega praga ni izrecno potrjena v citatu")
+                continue
         matching=[p['number'] for p in source.get('page_texts',[]) if norm(item['evidence_quote']) in norm(p['text'])]
         if source.get('pages') is not None and len(matching)!=1:
             rejected.append(f"{item['label'][:100]}: AI citata ni mogoče enolično povezati s stranjo PDF")
@@ -255,7 +276,8 @@ def ai_extract(docs, progress=None):
     # Fail before any paid request if authentication is absent.
     if not os.getenv('OPENAI_API_KEY','').strip():
         raise ValueError('API ključ ni nastavljen: nastavite OPENAI_API_KEY v okolju procesa in znova zaženite aplikacijo')
-    chunks = list(document_chunks(docs))
+    tender_context=next((d['text'][:12000] for d in docs if d.get('pages') is None),'')
+    chunks = [{**chunk,'tender_context':tender_context} for chunk in document_chunks(docs)]
     results = ExtractionResults()
     seen = set()
     for number, chunk in enumerate(chunks, 1):
@@ -298,11 +320,12 @@ def analyze(url, progress=None):
     docs,errors,found=collect(url, progress=progress)
     if errors:raise ValueError('Analiza je nepopolna: '+' | '.join(errors))
     if not found:raise ValueError('Na uradni strani ni najdenih PDF-prilog; preverite povezavo do razpisne dokumentacije')
-    extracted=ai_extract(docs, progress=progress)
+    analysis_docs,selection_warnings=select_documents(docs)
+    extracted=ai_extract(analysis_docs, progress=progress)
     progress(96, "Preverjam rezultate in pripravljam shranjevanje ...")
     if not extracted:raise ValueError('Dokumentacija ne vsebuje dovolj dokazljivih pogojev: AI je vrnil prazen seznam')
     mode='AI' if extracted is not None else 'ključne besede (brez AI)'
     conditions=extracted if extracted is not None else fallback(docs)
     digest=hashlib.sha256((''.join(d['url']+d['text'] for d in docs)).encode()).hexdigest()
-    return {'conditions':conditions,'documents':[{'url':d['url'],'title':d['title'],'pages':d['pages'],'length':len(d['text']),'sha256':d.get('sha256')} for d in docs],
-            'warnings':errors + getattr(extracted,'warnings',[]) + ['Dokumentacija je analizirana po sklopih; pogoji ostajajo nepotrjeni. Preverite povezave med pogoji, izjemami in merili v celotni dokumentaciji.'],'pdf_links_found':found,'mode':mode,'digest':digest}
+    return {'conditions':conditions,'documents':[{'url':d['url'],'title':d['title'],'pages':d['pages'],'length':len(d['text']),'sha256':d.get('sha256'),'selected_pages':d.get('selected_pages')} for d in analysis_docs],
+            'warnings':errors + selection_warnings + getattr(extracted,'warnings',[]) + ['Dokumentacija je analizirana po sklopih; pogoji ostajajo nepotrjeni. Preverite povezave med pogoji, izjemami in merili v celotni dokumentaciji.'],'pdf_links_found':found,'mode':mode,'digest':digest}
