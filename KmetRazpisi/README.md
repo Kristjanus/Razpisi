@@ -1,3 +1,27 @@
+## Novost 1.6.0 – imenik izvozov predpisov in lokalna ponovna uporaba
+
+Zavihek Predpisi prikazuje shranjene ID-je, imena, različice, datume začetka uporabe
+in URL-je uradnih izvozov. URL se zabeleži samodejno ob uspešnem pridobivanju vira
+med analizo. Rezervno lahko uporabnik vnese uradni neposredni HTML-URL; ID-ja datoteke
+se ne ugiba. Uvoz prenese, razčleni in shrani dejanski predpis, ne le povezave.
+GET /api/laws vrne imenik, POST /api/laws/import sprejme url in neobvezni refresh.
+
+Natančno določen shranjeni URL z eno prepoznano različico se lahko uporabi lokalno
+brez ponovnega prenosa. Uspešno razrešen pravni sklic se poveže s konkretnim SHA
+izvoza in zgoščeno vsebino celotne razpisne dokumentacije. Pri nespremenjeni
+ponovitvi se preskoči spletno iskanje in uporabi isti lokalni predpis; razlaga
+izbranega člena še vedno uporablja API. Sprememba razpisnih dokumentov prekine
+ujemanje povezave; ni samodejnega izbora najnovejše ali časovno veljavne različice.
+Več različnih vsebin za isti URL zahteva pregled in ne sproži tihega izbora.
+Stari izvozi se ohranijo. Knjižnica je v kmetrazpisi-laws.sqlite3, ohranite jo
+poleg glavne baze. To je arhiv posnetkov, ne jamstvo najnovejšega besedila.
+
+Samodejna povezava ID predpisa → HTML-izvoz z vmesniki PISRS še ni potrjena;
+prvo odkritje URL-ja uporablja obstoječe iskanje ali podani uradni URL. Neposredni
+URL, ki ga je uporabnik posredoval, je v tem okolju še vedno blokiran s HTTP 403.
+Preverjeno z dejanskim priloženim HTML-izvozom in simuliranim prenosom, ne z živim
+PISRS in OpenAI računom.
+
 ## Novost 1.5.1 – preverjeno na dejanskem izvozu PISRS URED8874 NPB5
 
 Dejanski HTML-izvoz razdeli na 36 členov (1–35 in 20.a) ter pravilno izbere
@@ -193,7 +217,7 @@ celotne nove analize; prejšnji rezultat ostane. Že opravljeni API klici so klj
 poznejši napaki plačljivi. Dolgi dokumenti zato potrebujejo več časa in več API
 klicev. Pogoji ostajajo nepotrjeni, ker se izjeme lahko nahajajo v drugih sklopih.
 
-# Trenutna različica: 1.5.1
+# Trenutna različica: 1.6.0
 
 Različica 1.3.1 popravlja zajem: edini začetni vir je uradni seznam SKP, dejanski razpisi pa so povezane strani pod `/zbirke/javne-objave/`. Informativne strani iz starih pregledov ostanejo v bazi, vendar niso več prikazane med razpisi. Ročno dodajanje preveri prisotnost povezave na seznamu SKP.
 

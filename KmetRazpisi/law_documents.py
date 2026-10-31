@@ -194,6 +194,51 @@ class LawLibrary:
         return {'version_label':row[0],'text':row[1],'law':json.loads(row[2]),'metadata':json.loads(row[3] or '{}') if len(row)>3 else {}}
 
 
+    def entries(self):
+        if not self.path.exists():return []
+        with sqlite3.connect(self.path) as db:
+            tables={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if 'law_versions' not in tables:return []
+            columns={r[1] for r in db.execute('PRAGMA table_info(law_versions)')}
+            if 'metadata' not in columns:return []
+            rows=db.execute('SELECT source_url,sha256,fetched_at,format,metadata FROM law_versions ORDER BY fetched_at DESC').fetchall()
+        result=[]
+        for url,digest,fetched,format,raw_metadata in rows:
+            metadata=json.loads(raw_metadata or '{}')
+            if not metadata.get('source_id'):continue
+            result.append(dict(source_url=url,sha256=digest,fetched_at=fetched,format=format,**metadata))
+        return result
+
+    def find_url(self,url):
+        entries=[e for e in self.entries() if e['source_url']==url and e.get('version_label')]
+        if len(entries)!=1:return None
+        return {**self.load(url,entries[0]['sha256']),**entries[0]}
+
+    def remember_binding(self,key,references):
+        pinned=[]
+        for reference in references:
+            cached=self.find_url(reference['source_url'])
+            if cached is None:return
+            pinned.append({k:reference[k] for k in ('law_title','provision','source_url')})
+            pinned[-1]['sha256']=cached['sha256']
+        if not pinned:return
+        with sqlite3.connect(self.path) as db:
+            db.execute('CREATE TABLE IF NOT EXISTS legal_bindings(key TEXT PRIMARY KEY,references_json TEXT NOT NULL)')
+            db.execute('INSERT INTO legal_bindings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET references_json=excluded.references_json',(key,json.dumps(pinned,ensure_ascii=False)))
+
+    def binding(self,key):
+        if not self.path.exists():return None
+        with sqlite3.connect(self.path) as db:
+            if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='legal_bindings'").fetchone():return None
+            row=db.execute('SELECT references_json FROM legal_bindings WHERE key=?',(key,)).fetchone()
+        if row is None:return None
+        references=json.loads(row[0])
+        for reference in references:
+            try:self.load(reference['source_url'],reference['sha256'])
+            except LawParseError:return None
+        return references
+
+
 def main():
     parser=argparse.ArgumentParser(description='Razdeli lokalni predpis in izberi določbo brez AI')
     parser.add_argument('file');parser.add_argument('--source-url',required=True);parser.add_argument('--version',required=True)

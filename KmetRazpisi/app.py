@@ -9,6 +9,8 @@ from bs4 import BeautifulSoup
 from analyzer import analyze
 from eligibility import evaluate
 from version import VERSION
+from law_documents import LawLibrary
+from legal_explainer import import_law_url
 import analysis_jobs
 from skp import SOURCE_URL, load_calls, listed_call
 
@@ -130,6 +132,7 @@ class Handler(BaseHTTPRequestHandler):
   p=urlparse(self.path).path
   if p=='/':
    raw=HTML.read_text(encoding='utf-8').replace('{{APP_VERSION}}', VERSION).encode('utf-8');self.send_response(200);self.send_header('Cache-Control','no-store');self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw);return
+  if p=='/api/laws':return self._send({'entries':LawLibrary().entries()})
   if p=='/api/state':
    f=farm()
    with conn() as c:
@@ -151,6 +154,7 @@ class Handler(BaseHTTPRequestHandler):
  def do_POST(self):
   try:
    p=urlparse(self.path).path;b=self._body()
+   if p=='/api/laws/import':return self._send(import_law_url(b.get('url','').strip(),refresh=b.get('refresh') is True))
    if p=='/api/farm':
     if not isinstance(b,dict):raise ValueError('Neveljaven profil')
     with conn() as c:c.execute('UPDATE farm SET data=?,updated_at=? WHERE id=1',(json.dumps(b,ensure_ascii=False),now()))

@@ -1,5 +1,6 @@
 """Retrieve legal provisions through grounded search, then verify quotations locally."""
 import json
+import hashlib
 import os
 import re
 import unicodedata
@@ -23,7 +24,12 @@ def official(url):
         return False
 
 
-def source_text(url):
+def source_text(url, refresh=False):
+    original_url=url
+    if not official(url):raise ValueError('Pravni vir ni na dovoljeni uradni domeni')
+    if not refresh:
+        cached=LawLibrary().find_url(url)
+        if cached is not None:return cached['text']
     for _ in range(6):
         if not official(url):raise ValueError('Pravni vir ni na dovoljeni uradni domeni')
         with requests.get(url,timeout=(10,35),stream=True,allow_redirects=False) as response:
@@ -35,15 +41,39 @@ def source_text(url):
                 if len(raw)>8_000_000:raise ValueError('Pravni vir presega 8 MB')
             text,format=decode_document(bytes(raw),response.headers.get('content-type',''))
             law=parse_law(text)
-            LawLibrary().store(url,bytes(raw),text,format,law,metadata=document_metadata(bytes(raw)))
+            metadata=document_metadata(bytes(raw));metadata['resolved_url']=url
+            LawLibrary().store(original_url,bytes(raw),text,format,law,version_label=metadata.get('version_label') or 'nepotrjena časovna različica',metadata=metadata)
             return text
     raise ValueError('Preveč preusmeritev pravnega vira')
+
+
+def import_law_url(url,refresh=False):
+    if not official(url):raise LawParseError('Vnesite HTTPS-povezavo uradnega pravnega vira')
+    source_text(url,refresh=refresh)
+    entries=[entry for entry in LawLibrary().entries() if entry['source_url']==url]
+    if not entries:raise LawParseError('Izvoz nima prepoznanega ID-ja predpisa; povezava ni bila potrjena v imeniku')
+    return {'entries':entries,'message':'Izvoz je shranjen. Časovno veljavnost za konkretni razpis je treba preveriti.'}
 
 
 def explain(condition, tender_context):
     missing=lambda reason:dict(status='unresolved',message=reason,provisions=[])
     key=os.getenv('OPENAI_API_KEY','').strip()
     if not key:return missing('API ključ ni nastavljen; pravni sklic ni razrešen.')
+    binding_key=hashlib.sha256((condition.get('_legal_context_key',tender_context)+'\n'+condition['evidence_quote']).encode()).hexdigest()
+    saved=LawLibrary().binding(binding_key)
+    if saved:
+        valid=[]
+        try:
+            for reference in saved:
+                stored=LawLibrary().load(reference['source_url'],reference['sha256'])
+                selected,numbers=articles_for_reference(stored['law'],reference['provision'])
+                result=explain_selected(condition,reference,selected,stored['law']['warnings'])
+                if result is None:return missing('Razlaga shranjenega člena ni potrjena.')
+                result['local_snapshot']=True
+                valid.append(result)
+            return dict(status='explained',message='Uporabljen lokalno shranjen izvoz za isti sklic in isto dokumentacijo. Časovno veljavnost in izjeme je treba potrditi.',provisions=valid)
+        except (requests.RequestException,ValueError,KeyError,TypeError):
+            return missing('Lokalnega predpisa ali razlage ni mogoče preveriti.')
     properties={k:{'type':'string'} for k in ('law_title','provision','source_url')}
     schema={'type':'object','additionalProperties':False,'properties':{'provisions':{'type':'array','items':{'type':'object','additionalProperties':False,'properties':properties,'required':list(properties)}}},'required':['provisions']}
     prompt=('Poišči samo uradni vir zahtevanega predpisa in številke relevantnih členov. Ne razlagaj celotnega predpisa. '
@@ -109,6 +139,7 @@ def explain(condition, tender_context):
             except LawParseError as ex:errors.append('Razdelitev predpisa: '+str(ex))
             except (requests.RequestException,ValueError):errors.append('Uradnega besedila ni mogoče neposredno pridobiti in preveriti')
         if not valid:return missing('Pravni sklic ni razrešen: '+('; '.join(sorted(set(errors))) if errors else 'Uradno besedilo ni bilo najdeno.'))
+        LawLibrary().remember_binding(binding_key,valid)
         return dict(status='explained',message='Razlaga najdenih določb. Časovno veljavnost, popolnost sklicev in izjeme je treba potrditi; pogoj ostaja za ročni pregled.'+(' Nekateri sklici niso razrešeni: '+'; '.join(sorted(set(errors))) if errors else ''),provisions=valid)
     except (requests.RequestException,ValueError,KeyError,TypeError):
         return missing('Pravne razlage ni mogoče pridobiti: omrežna napaka ali neveljaven odgovor AI.')
@@ -140,11 +171,13 @@ def enrich(conditions, docs, progress=None):
     progress=progress or (lambda percent,message:None)
     context='\n'.join(d['text'][:8000] for d in docs)[:16000]
     pending=[c for c in conditions if re.search(r'\b\d+[.]?\s*člen',(c.get('label','')+' '+c.get('explanation','')) if c.get('label') else c.get('evidence_quote',''),re.I)]
+    context_key=hashlib.sha256(json.dumps([(d.get('url'),hashlib.sha256(d['text'].encode()).hexdigest()) for d in docs],ensure_ascii=False).encode()).hexdigest()
     cache={}
     for index,condition in enumerate(pending,1):
         progress(90+5*(index-1)/max(1,len(pending)),f'Razlagam sklice na predpise: {index}/{len(pending)}')
         # Every legal cross-reference stays outside automatic eligibility decisions.
         condition.update(fact_key='unknown',operator='none',expected=None,fixed=False)
+        condition['_legal_context_key']=context_key
         signature=condition['evidence_quote']
         if signature not in cache:cache[signature]=explain(condition,context)
         condition['legal_resolution']=cache[signature]
