@@ -1,3 +1,18 @@
+## Novost 1.4.2 – združljivost spletnega iskanja in vse priloge
+
+Pri HTTP 400, povezanem s tools/web_search, pravno iskanje najprej poskusi orodje
+web_search brez strežniškega filtra in nato web_search_preview. Model se ne
+zamenja samodejno. Za preview se URL-ji preverijo iz citiranih povezav odgovora;
+pravilo uradne domene in neposrednega preverjanja citata ostane obvezno.
+Napake avtentikacije in omejitve porabe se ne ponavljajo s tem mehanizmom.
+Če model ne podpira nobene različice, je sklic še vedno označen kot nerazrešen;
+OPENAI_LEGAL_MODEL omogoča izbiro modela z ustrezno podporo.
+
+Odstranjena je omejitev osmih prilog: obdelajo se vse najdene dovoljene PDF- in
+DOCX-priloge razpisa, razen skupnih meril. Ostanejo omejitve velikosti posamezne
+priloge in strani. Več prilog pomeni daljšo analizo in višjo API-porabo.
+Preverjeno s simuliranimi API-odgovori in regresijskimi testi, ne z živim API-ključem.
+
 ## Novost 1.4.1 – samo dejanske zahteve in neposredni naslovi
 
 AI razvršča pogoje upravičenosti, obveznosti, pragove, postopkovna navodila in
@@ -126,7 +141,7 @@ celotne nove analize; prejšnji rezultat ostane. Že opravljeni API klici so klj
 poznejši napaki plačljivi. Dolgi dokumenti zato potrebujejo več časa in več API
 klicev. Pogoji ostajajo nepotrjeni, ker se izjeme lahko nahajajo v drugih sklopih.
 
-# Trenutna različica: 1.4.1
+# Trenutna različica: 1.4.2
 
 Različica 1.3.1 popravlja zajem: edini začetni vir je uradni seznam SKP, dejanski razpisi pa so povezane strani pod `/zbirke/javne-objave/`. Informativne strani iz starih pregledov ostanejo v bazi, vendar niso več prikazane med razpisi. Ročno dodajanje preveri prisotnost povezave na seznamu SKP.
 
@@ -226,7 +241,7 @@ preverijo pred prenosom. Napaka priloge prepreči zamenjavo prejšnje uspešne a
 OCR se poskusi s Tesseract in jezikoma `slv+eng`; za skenirane dokumente namestite
 Tesseract z obema jezikovnima paketoma. Manjkajoč OCR ima posebno diagnostiko.
 
-Trenutne omejitve: največ 8 PDF-jev, 1.000 strani na PDF, 12 MB na dokument. Ob preseganju se analiza ustavi, ne odreže dokumentacije.
+Trenutne omejitve: 1.000 strani na PDF, 12 MB na dokument. Ob preseganju se analiza ustavi, ne odreže dokumentacije.
 Priloge prek vmesnih strani in DOCX še niso
 podprti. Tudi uspešna analiza ne zagotavlja, da je AI našel vse pravne pogoje.
 Sestavljene in časovno odvisne zahteve sodijo v ročni pregled. Samodejno skrivanje

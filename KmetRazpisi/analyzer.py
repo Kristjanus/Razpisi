@@ -9,7 +9,6 @@ from legal_explainer import enrich
 from scoring_scope import annotate_pages, select_documents, is_criteria
 
 HEADERS={'User-Agent':'KmetRazpisi/1.2 (private SKP document review)'}
-MAX_DOCS=8
 MAX_BYTES=12_000_000
 MAX_PAGES=1000
 CHUNK_CHARS=24000
@@ -93,9 +92,8 @@ def collect(url, progress=None):
         if re.search(r'\.(?:pdf|docx)(?:\?|$)',href,re.I) or a.get('type','').lower()=='application/pdf' or ('pdf' in label.lower() and ('download' in href.lower() or '/assets/' in href.lower())):
             seen.add(href);candidates.append((href,label))
     failures=[]
-    if len(candidates)>MAX_DOCS:failures.append('Analiza je nepopolna: več kot 8 PDF-prilog')
-    for number,(href,label) in enumerate(candidates[:MAX_DOCS],1):
-        progress(5 + 20*(number-1)/max(1,len(candidates)), f"Prenašam in berem PDF {number}/{len(candidates)}: {label or href}")
+    for number,(href,label) in enumerate(candidates,1):
+        progress(5 + 20*(number-1)/max(1,len(candidates)), f"Prenašam in berem prilogo {number}/{len(candidates)}: {label or href}")
         try:
             dest,pdf,ct=get(href)
             if re.search(r'\.docx(?:\?|$)',href,re.I):

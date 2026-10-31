@@ -628,3 +628,47 @@ class AnnexDOCX(unittest.TestCase):
         self.assertEqual(errors,[])
         self.assertIn('Upravičeni območji sta A in B.',docs[1]['text'])
         self.assertEqual(docs[1]['title'],'Priloga 1 – območja')
+
+class SearchCompatibility(unittest.TestCase):
+    def error(self,status=400,param='tools'):
+        return Mock(ok=False,status_code=status,json=lambda:{'error':{'param':param,'type':'invalid_request_error','message':'Unsupported parameter'}})
+
+    def test_tool_filter_rejection_retries_without_filters(self):
+        import legal_explainer as legal
+        case=LegalExplanation();p=case.provision()
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('legal_explainer.requests.post',side_effect=[self.error(),case.response(p)]) as request,patch('legal_explainer.source_text',return_value=p['source_quote']):
+            result=legal.explain({'evidence_quote':'20. člen'},'Uredba')
+        self.assertEqual(result['status'],'explained')
+        self.assertNotIn('filters',request.call_args_list[1].kwargs['json']['tools'][0])
+        self.assertEqual(request.call_count,2)
+
+    def test_preview_citations_are_verified(self):
+        import legal_explainer as legal
+        p=LegalExplanation().provision()
+        success=Mock(ok=True,json=lambda:{'output':[{'type':'message','content':[{'type':'output_text','text':json.dumps({'provisions':[p]}),'annotations':[{'type':'url_citation','url':p['source_url']}]}]}]})
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('legal_explainer.requests.post',side_effect=[self.error(),self.error(),success]) as request,patch('legal_explainer.source_text',return_value=p['source_quote']):
+            result=legal.explain({'evidence_quote':'20. člen'},'Uredba')
+        self.assertEqual(result['status'],'explained')
+        self.assertEqual(request.call_args.kwargs['json']['tools'],[{'type':'web_search_preview'}])
+        self.assertNotIn('include',request.call_args.kwargs['json'])
+
+    def test_authentication_and_rate_limit_not_retried(self):
+        import legal_explainer as legal
+        for status in (401,429):
+            with self.subTest(status=status),patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('legal_explainer.requests.post',return_value=self.error(status)) as request:
+                result=legal.explain({'evidence_quote':'20. člen'},'Uredba')
+                self.assertEqual(request.call_count,1)
+                self.assertEqual(result['status'],'unresolved')
+
+    def test_more_than_eight_pdfs_are_all_read(self):
+        urls=[f'https://www.gov.si/assets/Priloga{i}.pdf' for i in range(1,11)]
+        html=('<main>'+''.join(f'<a href="{u}">Priloga {i}</a>' for i,u in enumerate(urls))+'</main>').encode()
+        with fitz.open() as pdf:
+            pdf.new_page().insert_text((40,60),'Official appendix text with sufficient text for extraction.');raw=pdf.tobytes()
+        responses=[('https://www.gov.si/call',html,'text/html')]+[(u,raw,'application/pdf') for u in urls]
+        with patch('analyzer.get',side_effect=responses) as request:
+            docs,errors,count=analyzer.collect('https://www.gov.si/call')
+        self.assertEqual(errors,[])
+        self.assertEqual(count,10)
+        self.assertEqual(len(docs),11)
+        self.assertEqual(docs[-1]['url'],urls[-1])
