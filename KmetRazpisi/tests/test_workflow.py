@@ -467,3 +467,37 @@ class CriteriaSelection(unittest.TestCase):
         sent=extract.call_args.args[0][1]
         self.assertNotIn(20,sent['selected_pages'])
         self.assertEqual(output['documents'][1]['selected_pages'],sent['selected_pages'])
+
+class UploadedDocumentRegression(unittest.TestCase):
+    def fixture(self):
+        return json.loads((Path(__file__).parent/'fixtures'/'irp16_excerpts.json').read_text(encoding='utf-8'))
+
+    def test_explicit_45_point_threshold_on_original_page_4(self):
+        f=self.fixture()
+        doc=dict(url=URL,title='Javni razpis',pages=41,text=f['call_page_4'],page_texts=[dict(number=4,text=f['call_page_4'])])
+        result=analyzer.explicit_minimum_points([doc])
+        self.assertEqual(len(result),1)
+        self.assertEqual(result[0]['expected'],45)
+        self.assertEqual(result[0]['page_number'],4)
+        self.assertIn('30 %',result[0]['evidence_quote'])
+        # A bare percentage is not an absolute points threshold.
+        doc['page_texts'][0]['text']='Vstopni prag 30 % možnega števila točk.'
+        self.assertEqual(analyzer.explicit_minimum_points([doc]),[])
+
+    def test_separate_number_and_irp_title_lines(self):
+        from scoring_scope import annotate_pages,select_documents
+        f=self.fixture();pages=[dict(number=i,text='Continuation') for i in range(1,99)]
+        pages[78]['text']=f['criteria_page_79'];pages[89]['text']=f['criteria_next_heading']
+        annotate_pages(pages,[])
+        doc=dict(title='Merila',url=URL,pages=98,page_texts=pages,text='all')
+        selected,warnings=select_documents([doc],[dict(anchor='Naložbe v prilagoditev na podnebne spremembe pri trajnih nasadih')])
+        self.assertEqual(selected[0]['selected_pages'],list(range(79,91)))
+
+    def test_version_8_reference_does_not_accept_version_11_cover(self):
+        from scoring_scope import select_documents
+        f=self.fixture()
+        primary=dict(title='Razpis',text=f['call_page_4'])
+        criteria=dict(title='Merila',url=URL,text=f['criteria_cover'],page_texts=[dict(number=1,text=f['criteria_cover'])])
+        selected,warnings=select_documents([primary,criteria],[dict(anchor='IRP16')])
+        self.assertEqual(selected,[primary])
+        self.assertTrue(any('8.' in w and '11.' in w and 'NI poslan' in w for w in warnings))

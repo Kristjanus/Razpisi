@@ -17,6 +17,15 @@ def is_criteria(doc):
 
 def annotate_pages(pages, toc):
     valid=[entry[:3] for entry in toc if 1<=entry[2]<=len(pages)]
+    # GOV.SI criteria put the section number and IRP title on separate lines.
+    if not valid:
+        for page in pages:
+            lines=page['text'].splitlines()
+            for index,line in enumerate(lines):
+                if not re.fullmatch(r'\s*3\.\d+\s*',line) or index+1>=len(lines):continue
+                heading=lines[index+1].strip()
+                if re.match(r'^IRP\s*\d+\s*[-–]',heading,re.I) and not re.search(r'\.{3}',heading):
+                    valid.append([2,line.strip()+' '+heading,page['number']])
     # Some PDFs have only a printed contents page, without PDF bookmarks.
     if not valid:
         for page in pages:
@@ -33,12 +42,33 @@ def annotate_pages(pages, toc):
     return pages
 
 
+def criteria_version_check(doc, primary):
+    expected=set()
+    for source in primary:
+        compact=re.sub(r'\s+','',source['text'])
+        expected.update(re.findall(r'Merila_za_izbor_operacij[^\s]*?EKSRP_(\d+)_P',compact,re.I))
+    filename_version=re.search(r'EKSRP_(\d+)_P',doc.get('url',''),re.I)
+    cover=doc.get('page_texts',[{}])[0].get('text','') if doc.get('page_texts') else doc.get('text','')[:2000]
+    cover_version=re.search(r'(\d+)\.\s*SPREMEMBA',cover,re.I)
+    actual={m.group(1) for m in (filename_version,cover_version) if m}
+    if len(expected)>1:
+        return 'Več različnih različic meril je navedenih v dokumentaciji; veljavno različico preverite ročno.'
+    if expected and actual and expected!=actual:
+        return f"Neujemanje različice meril: razpis navaja {', '.join(sorted(expected))}. različico, dokument pa {', '.join(sorted(actual))}. različico. Teh meril ni dovoljeno samodejno uporabiti; preverite spremembe razpisa."
+    return None
+
+
 def select_documents(docs, references=None):
     references=references or []
     selected=[];warnings=[]
+    primary=[d for d in docs if not is_criteria(d)]
     for doc in docs:
         if not is_criteria(doc):
             selected.append(doc);continue
+        mismatch=criteria_version_check(doc,primary)
+        if mismatch:
+            warnings.append(f"NEPOPOLNA ANALIZA: {doc['title']}: {mismatch} Dokument meril NI poslan AI-ju.")
+            continue
         pages=doc.get('page_texts',[])
         sections={ (s['title'],s['start'],s['end']):s for p in pages for s in p.get('sections',[]) }
         matched=[];used=[]

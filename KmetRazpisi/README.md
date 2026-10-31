@@ -1,3 +1,16 @@
+## Novost 1.3.9 – preverjeno na priloženih dejanskih PDF-jih
+
+Razčlenjevalnik prepozna ločeni vrstici številke razdelka in naslova IRP v merilih
+brez zaznamkov. Sklic lahko temelji tudi na polnem imenu intervencije v naslovu
+razpisa, ne le na kodi IRP. Pred uporabo meril se primerja navedena različica v
+povezavi razpisa z različico naslovnice oziroma imena datoteke; neujemanje prepreči
+uporabo točkovnika z jasnim opozorilom. Kasnejše spremembe razpisa zahtevajo pregled.
+Izrecna oblika »vstopni prag ... %, ki znaša X točk« se prebere neposredno s citatom
+in stranjo, brez izračuna iz odstotka. Druge oblike še obravnava AI. Različnih pragov
+se ne združuje; spremembe lahko spremenijo veljavni prag.
+Priloženi razpis na strani 4 navaja 45 točk ter povezavo na EKSRP_8_P-v2, priložena
+merila pa imajo naslovnico 11. spremembe. Aplikacija teh različic ne sme enačiti.
+
 ## Novost 1.3.8 – izvor pogojev in izbora meril
 
 Vsak samodejno izluščeni pogoj prikazuje ime izvornega dokumenta kot povezavo,
@@ -76,7 +89,7 @@ celotne nove analize; prejšnji rezultat ostane. Že opravljeni API klici so klj
 poznejši napaki plačljivi. Dolgi dokumenti zato potrebujejo več časa in več API
 klicev. Pogoji ostajajo nepotrjeni, ker se izjeme lahko nahajajo v drugih sklopih.
 
-# Trenutna različica: 1.3.8
+# Trenutna različica: 1.3.9
 
 Različica 1.3.1 popravlja zajem: edini začetni vir je uradni seznam SKP, dejanski razpisi pa so povezane strani pod `/zbirke/javne-objave/`. Informativne strani iz starih pregledov ostanejo v bazi, vendar niso več prikazane med razpisi. Ročno dodajanje preveri prisotnost povezave na seznamu SKP.
 
