@@ -506,7 +506,8 @@ class LegalExplanation(unittest.TestCase):
     def response(self,provision):
         return Mock(ok=True,json=lambda:{'output':[
             {'type':'web_search_call','action':{'sources':[{'url':provision['source_url']}]}},
-            {'type':'message','content':[{'type':'output_text','text':json.dumps({'provisions':[provision]})}]}]})
+            {'type':'message','content':[{'type':'output_text','text':json.dumps({'provisions':[provision]})}]}],
+            'choices':[{'message':{'content':json.dumps({k:provision[k] for k in ('explanation','source_quote','version_note')})}}]})
 
     def provision(self):
         return dict(law_title='Uredba – testni primer',provision='20. člen, prvi odstavek',source_url='https://pisrs.si/pregledPredpisa?id=TEST',source_quote='Vlagatelj mora biti vpisan v register kmetijskih gospodarstev.',explanation='Kmetija mora biti vpisana v register kmetijskih gospodarstev.',version_note='Časovno veljavnost je treba potrditi.')
@@ -514,7 +515,7 @@ class LegalExplanation(unittest.TestCase):
     def test_grounded_quote_is_verified_before_explanation(self):
         import legal_explainer as legal
         p=self.provision()
-        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('legal_explainer.requests.post',return_value=self.response(p)),patch('legal_explainer.source_text',return_value=p['source_quote']):
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('legal_explainer.requests.post',return_value=self.response(p)),patch('legal_explainer.source_text',return_value='20. člen\n(1) '+p['source_quote']):
             result=legal.explain({'evidence_quote':'Pogoji iz 20. člena uredbe.'},'Uredba – testni primer')
         self.assertEqual(result['status'],'explained')
         self.assertEqual(result['provisions'][0]['explanation'],p['explanation'])
@@ -636,21 +637,21 @@ class SearchCompatibility(unittest.TestCase):
     def test_tool_filter_rejection_retries_without_filters(self):
         import legal_explainer as legal
         case=LegalExplanation();p=case.provision()
-        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('legal_explainer.requests.post',side_effect=[self.error(),case.response(p)]) as request,patch('legal_explainer.source_text',return_value=p['source_quote']):
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('legal_explainer.requests.post',side_effect=[self.error(),case.response(p),case.response(p)]) as request,patch('legal_explainer.source_text',return_value='20. člen\n(1) '+p['source_quote']):
             result=legal.explain({'evidence_quote':'20. člen'},'Uredba')
         self.assertEqual(result['status'],'explained')
         self.assertNotIn('filters',request.call_args_list[1].kwargs['json']['tools'][0])
-        self.assertEqual(request.call_count,2)
+        self.assertEqual(request.call_count,3)
 
     def test_preview_citations_are_verified(self):
         import legal_explainer as legal
         p=LegalExplanation().provision()
         success=Mock(ok=True,json=lambda:{'output':[{'type':'message','content':[{'type':'output_text','text':json.dumps({'provisions':[p]}),'annotations':[{'type':'url_citation','url':p['source_url']}]}]}]})
-        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('legal_explainer.requests.post',side_effect=[self.error(),self.error(),success]) as request,patch('legal_explainer.source_text',return_value=p['source_quote']):
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('legal_explainer.requests.post',side_effect=[self.error(),self.error(),success,LegalExplanation().response(p)]) as request,patch('legal_explainer.source_text',return_value='20. člen\n(1) '+p['source_quote']):
             result=legal.explain({'evidence_quote':'20. člen'},'Uredba')
         self.assertEqual(result['status'],'explained')
-        self.assertEqual(request.call_args.kwargs['json']['tools'],[{'type':'web_search_preview'}])
-        self.assertNotIn('include',request.call_args.kwargs['json'])
+        self.assertEqual(request.call_args_list[2].kwargs['json']['tools'],[{'type':'web_search_preview'}])
+        self.assertNotIn('include',request.call_args_list[2].kwargs['json'])
 
     def test_authentication_and_rate_limit_not_retried(self):
         import legal_explainer as legal

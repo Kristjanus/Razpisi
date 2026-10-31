@@ -1,3 +1,35 @@
+## Novost 1.5.0 – razdelitev predpisov brez AI
+
+Modul law_documents.py prebere uradni HTML, DOCX ali besedilni PDF in programsko
+razdeli vsebino po členih (tudi 12.a), odstavkih in enostavnih oštevilčenih ali
+črkovnih točkah. Omembe členov v stavkih niso obravnavane kot naslovi. Dvoumne
+podvojene oznake se zavrnejo, vrzeli v zaporedju opozorijo na potreben pregled.
+Skeni, spletni ovoji brez besedila in stari binarni DOC zahtevajo drug uradni izvoz.
+
+Pri razlagi pravnega sklica spletno iskanje najprej poišče URL predpisa. Program
+nato prenese predpis in izbere navedene člene; šele izbrano besedilo pošlje modelu
+za razlago. Pri navedbi odstavka/točke trenutno vključi celoten zahtevani člen,
+da ohrani kontekst in izjeme. Nadaljnji sklici na druge določbe niso samodejno
+rekurzivno razrešeni; nejasni pogoji še zahtevajo pregled. Časovna veljavnost ni
+samodejno potrjena. Podpora živim PISRS-izvozom še ni preverjena zaradi blokade
+HTTP 403 v okolju. Ni potrjenega javnega API-ja PISRS.
+
+Pridobljena besedila in njihove razdelitve se shranjujejo v ločeno lokalno bazo
+kmetrazpisi-laws.sqlite3 (pot nastavljiva s KMETRAZPISI_LAW_DB). Različne zgoščene
+vsebine se ohranijo ločeno; stare različice se ne prepišejo. Vsak vir se pred
+uporabo znova pridobi, zato predpomnilnik še ne odpravlja prenosa. Tudi ta baza
+je lokalni podatek, ki ga pri posodobitvah ohranite. Vrednost version_label iz
+samodejnega prenosa je nepreverjena, ne pravna potrditev veljavnosti.
+
+Preizkus brez OpenAI in brez interneta:
+
+```powershell
+.venv\Scripts\python law_documents.py predpis.html --source-url "https://pisrs.si/URADNI-VIR" --version "preverjena oznaka izvoza" --article 12 --paragraph 2
+```
+
+`--point a` izbere točko, `--database druga-pot.sqlite3` drugo lokalno knjižnico.
+Naslov v primeru je označba za dejanski uradni URL, ne delujoča povezava do predpisa.
+
 ## Novost 1.4.3 – vir pogoja se določi po preverjenem citatu
 
 Če AI navede napačen URL, se citat preveri v dejansko prenesenih dokumentih
@@ -150,7 +182,7 @@ celotne nove analize; prejšnji rezultat ostane. Že opravljeni API klici so klj
 poznejši napaki plačljivi. Dolgi dokumenti zato potrebujejo več časa in več API
 klicev. Pogoji ostajajo nepotrjeni, ker se izjeme lahko nahajajo v drugih sklopih.
 
-# Trenutna različica: 1.4.3
+# Trenutna različica: 1.5.0
 
 Različica 1.3.1 popravlja zajem: edini začetni vir je uradni seznam SKP, dejanski razpisi pa so povezane strani pod `/zbirke/javne-objave/`. Informativne strani iz starih pregledov ostanejo v bazi, vendar niso več prikazane med razpisi. Ročno dodajanje preveri prisotnost povezave na seznamu SKP.
 
