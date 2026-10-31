@@ -1,3 +1,14 @@
+## Novost 1.5.1 – preverjeno na dejanskem izvozu PISRS URED8874 NPB5
+
+Dejanski HTML-izvoz razdeli na 36 členov (1–35 in 20.a) ter pravilno izbere
+odstavke in točke 9. in 12. člena. PISRS-oznake p.clen ohranijo večvrstične
+naslove členov kot celoto. Oznake poglavij in povezave p.priloga se ne pripenjajo
+besedilu predhodnega oziroma zadnjega člena. Priloge se ohranijo v metapodatkih.
+Izvoz hrani ID URED8874, oznako neuradnega prečiščenega besedila NPB5 in datum
+začetka uporabe 20. 3. 2026. To ni samodejna potrditev pravilne časovne različice
+za razpis. Preverjeno lokalno na priloženem izvozu brez OpenAI klicev; samodejni
+prenos s PISRS še ni potrjen. Migracija lokalne knjižnice doda samo metadata.
+
 ## Novost 1.5.0 – razdelitev predpisov brez AI
 
 Modul law_documents.py prebere uradni HTML, DOCX ali besedilni PDF in programsko
@@ -182,7 +193,7 @@ celotne nove analize; prejšnji rezultat ostane. Že opravljeni API klici so klj
 poznejši napaki plačljivi. Dolgi dokumenti zato potrebujejo več časa in več API
 klicev. Pogoji ostajajo nepotrjeni, ker se izjeme lahko nahajajo v drugih sklopih.
 
-# Trenutna različica: 1.5.0
+# Trenutna različica: 1.5.1
 
 Različica 1.3.1 popravlja zajem: edini začetni vir je uradni seznam SKP, dejanski razpisi pa so povezane strani pod `/zbirke/javne-objave/`. Informativne strani iz starih pregledov ostanejo v bazi, vendar niso več prikazane med razpisi. Ročno dodajanje preveri prisotnost povezave na seznamu SKP.
 

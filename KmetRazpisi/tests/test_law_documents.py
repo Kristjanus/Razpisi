@@ -116,3 +116,38 @@ class AmbiguousLawStructure(unittest.TestCase):
 
     def test_invalid_word_zip_has_specific_error(self):
         with self.assertRaises(laws.LawParseError):laws.decode_document(b'PKnot-a-valid-zip')
+
+class RealPISRSExport(unittest.TestCase):
+    def fixture(self):
+        return (Path(__file__).parent/'fixtures'/'ured8874_npb5_excerpt.html').read_bytes()
+
+    def test_metadata_and_annex_links_are_preserved(self):
+        metadata=laws.document_metadata(self.fixture())
+        self.assertEqual(metadata['source_id'],'URED8874')
+        self.assertIn('5',metadata['version_label'])
+        self.assertEqual(metadata['application_start'],'2026-03-20')
+        self.assertFalse(metadata['version_verified_for_tender'])
+        self.assertEqual(len(metadata['annexes']),4)
+        self.assertTrue(all(a['url'].startswith('https://pisrs.si/') for a in metadata['annexes']))
+
+    def test_9_and_12_article_points_from_real_html(self):
+        text,_=laws.decode_document(self.fixture());law=laws.parse_law(text)
+        self.assertIn('ni izključen',laws.select_provision(law,9,1,1))
+        self.assertIn('neporavnanih obveznih dajatev',laws.select_provision(law,9,1,2))
+        self.assertIn('naloga za vračilo',laws.select_provision(law,12,1,5))
+        self.assertEqual(law['articles']['12']['title'],'splošni pogoji za dodelitev podpore kot državne pomoči ali pomoči de minimis')
+        self.assertNotIn('Priloga 1:',laws.select_provision(law,35))
+        self.assertNotIn('poglavje',laws.select_provision(law,12).splitlines()[-1])
+
+    def test_library_metadata_migration_preserves_existing_version(self):
+        import sqlite3
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'library.sqlite3'
+            law=laws.parse_law(TEXT)
+            with sqlite3.connect(path) as db:
+                db.execute('CREATE TABLE law_versions(source_url TEXT,sha256 TEXT,version_label TEXT,fetched_at TEXT,format TEXT,text TEXT,structure TEXT,PRIMARY KEY(source_url,sha256))')
+                db.execute('INSERT INTO law_versions VALUES(?,?,?,?,?,?,?)',('https://pisrs.si/old','oldhash','old','before','html',TEXT,json.dumps(law)))
+            library=laws.LawLibrary(path)
+            library.store('https://pisrs.si/new',b'new',TEXT,'html',law,metadata=laws.document_metadata(self.fixture()))
+            self.assertEqual(library.load('https://pisrs.si/old','oldhash')['version_label'],'old')
+            self.assertEqual(library.load('https://pisrs.si/old','oldhash')['metadata'],{})

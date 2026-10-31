@@ -6,7 +6,7 @@ import unicodedata
 from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
-from law_documents import decode_document, parse_law, articles_for_reference, LawLibrary, LawParseError
+from law_documents import decode_document, parse_law, articles_for_reference, LawLibrary, LawParseError, document_metadata
 
 OFFICIAL_HOSTS=('pisrs.si','uradni-list.si','eur-lex.europa.eu')
 
@@ -35,7 +35,7 @@ def source_text(url):
                 if len(raw)>8_000_000:raise ValueError('Pravni vir presega 8 MB')
             text,format=decode_document(bytes(raw),response.headers.get('content-type',''))
             law=parse_law(text)
-            LawLibrary().store(url,bytes(raw),text,format,law)
+            LawLibrary().store(url,bytes(raw),text,format,law,metadata=document_metadata(bytes(raw)))
             return text
     raise ValueError('Preveč preusmeritev pravnega vira')
 

@@ -17,6 +17,24 @@ class LawParseError(ValueError):
     pass
 
 
+def document_metadata(raw):
+    if raw.startswith((b'%PDF-',b'PK',b'\xd0\xcf\x11\xe0')):return {}
+    soup=BeautifulSoup(raw,'html.parser')
+    name=soup.title.get_text(' ',strip=True) if soup.title else ''
+    identifier=re.search(r'\b(?:URED|ZAKO|PRAV)\d+\b',name)
+    version=soup.select_one('p.npb')
+    date=soup.select_one('p.navezava-npb')
+    date_match=re.search(r'(\d{2})[.](\d{2})[.](\d{4})',date.get_text(' ',strip=True)) if date else None
+    return {'source_id':identifier[0] if identifier else None,
+            'export_title':name,
+            'law_title':' '.join(p.get_text(' ',strip=True) for p in soup.select('p.naslov')),
+            'version_label':version.get_text(' ',strip=True) if version else None,
+            'application_start':f'{date_match[3]}-{date_match[2]}-{date_match[1]}' if date_match else None,
+            'version_verified_for_tender':False,
+            'annexes':[{'title':a.get_text(' ',strip=True),'url':a.get('href')} for a in soup.select('p.priloga a[href]')],
+            'chapters':[p.get_text(' ',strip=True) for p in soup.select('p.poglavje')]}
+
+
 def decode_document(raw, content_type=''):
     if len(raw)>8_000_000:raise LawParseError('Predpis presega 8 MB')
     if raw.startswith(b'%PDF-'):
@@ -44,6 +62,11 @@ def decode_document(raw, content_type=''):
         raise LawParseError('Stari format DOC ni podprt; uporabite uradni HTML, DOCX ali PDF')
     soup=BeautifulSoup(raw,'html.parser')
     for node in soup(['script','style','nav','footer','header']):node.decompose()
+    # PISRS semantic classes separate headings and annex links from article text.
+    for node in soup.select('p.clen'):
+        heading=' '.join(node.get_text(' ',strip=True).split())
+        node.clear();node.append(heading)
+    for node in soup.select('p.priloga,p.poglavje'):node.decompose()
     # Preserve inline text within paragraphs, and line boundaries between blocks.
     for node in soup.find_all(['p','div','section','article','h1','h2','h3','h4','li','tr','br']):
         node.insert_before('\n');node.insert_after('\n')
@@ -86,7 +109,7 @@ def parse_law(text):
         if not body:raise LawParseError('Prazen '+number+'. člen')
         title=''
         heading=re.match(r'^\(([^\d\n][^\n]*)\)[ \t]*\n',body)
-        if heading:title=heading[1];body=body[heading.end():].strip()
+        if heading:title=heading[1].strip();body=body[heading.end():].strip()
         paragraphs={};paragraph_marks=list(re.finditer(r'^\s*\((\d+)\)[ \t]*',body,re.M))
         for pi,pm in enumerate(paragraph_marks):
             key=pm[1]
@@ -150,20 +173,25 @@ class LawLibrary:
     def __init__(self,path=None):
         self.path=Path(path or os.getenv('KMETRAZPISI_LAW_DB',str(Path(__file__).parent/'kmetrazpisi-laws.sqlite3')))
 
-    def store(self,source_url,raw,text,format,law,version_label='nepotrjena časovna različica'):
+    def store(self,source_url,raw,text,format,law,version_label='nepotrjena časovna različica',metadata=None):
         digest=hashlib.sha256(raw).hexdigest()
         with sqlite3.connect(self.path) as db:
             db.execute('CREATE TABLE IF NOT EXISTS law_versions(source_url TEXT,sha256 TEXT,version_label TEXT,fetched_at TEXT,format TEXT,text TEXT,structure TEXT,PRIMARY KEY(source_url,sha256))')
-            db.execute('INSERT OR IGNORE INTO law_versions VALUES(?,?,?,?,?,?,?)',(source_url,digest,version_label,datetime.datetime.now(datetime.timezone.utc).isoformat(),format,text,json.dumps(law,ensure_ascii=False)))
+            columns={r[1] for r in db.execute('PRAGMA table_info(law_versions)')}
+            if 'metadata' not in columns:db.execute('ALTER TABLE law_versions ADD COLUMN metadata TEXT')
+            db.execute('INSERT INTO law_versions(source_url,sha256,version_label,fetched_at,format,text,structure,metadata) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(source_url,sha256) DO UPDATE SET metadata=excluded.metadata,structure=excluded.structure,text=excluded.text',
+                       (source_url,digest,version_label,datetime.datetime.now(datetime.timezone.utc).isoformat(),format,text,json.dumps(law,ensure_ascii=False),json.dumps(metadata or {},ensure_ascii=False)))
         return digest
 
 
     def load(self,source_url,sha256):
         if not self.path.exists():raise LawParseError('Lokalna knjižnica še ne obstaja')
         with sqlite3.connect(self.path) as db:
-            row=db.execute('SELECT version_label,text,structure FROM law_versions WHERE source_url=? AND sha256=?',(source_url,sha256)).fetchone()
+            columns={r[1] for r in db.execute('PRAGMA table_info(law_versions)')}
+            fields='version_label,text,structure'+(',metadata' if 'metadata' in columns else '')
+            row=db.execute('SELECT '+fields+' FROM law_versions WHERE source_url=? AND sha256=?',(source_url,sha256)).fetchone()
         if row is None:raise LawParseError('Zahtevana različica ni v lokalni knjižnici')
-        return {'version_label':row[0],'text':row[1],'law':json.loads(row[2])}
+        return {'version_label':row[0],'text':row[1],'law':json.loads(row[2]),'metadata':json.loads(row[3] or '{}') if len(row)>3 else {}}
 
 
 def main():
@@ -173,7 +201,8 @@ def main():
     args=parser.parse_args()
     raw=Path(args.file).read_bytes();text,format=decode_document(raw);law=parse_law(text)
     selected=select_provision(law,args.article,args.paragraph,args.point)
-    digest=LawLibrary(args.database).store(args.source_url,raw,text,format,law,args.version)
-    print(json.dumps({'source_url':args.source_url,'version':args.version,'sha256':digest,'warnings':law['warnings'],'selected_text':selected},ensure_ascii=False,indent=2))
+    metadata=document_metadata(raw)
+    digest=LawLibrary(args.database).store(args.source_url,raw,text,format,law,args.version,metadata=metadata)
+    print(json.dumps({'source_url':args.source_url,'version':args.version,'sha256':digest,'metadata':metadata,'warnings':law['warnings'],'selected_text':selected},ensure_ascii=False,indent=2))
 
 if __name__=='__main__':main()
