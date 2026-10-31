@@ -147,7 +147,7 @@ def select_provision(law,article,paragraph=None,point=None):
     return entry['text']
 
 
-def articles_for_reference(law,reference):
+def reference_article_numbers(reference):
     # Multiple article numbers and numbered ranges: preserve the entire range.
     patterns=[r'((?:\d+[.]?\s*[a-zčšž]?\s*(?:,\s*|in\s+|do\s+)?)+)člen\w*',r'člen\s+(\d+[a-z]?)']
     numbers=[]
@@ -159,6 +159,11 @@ def articles_for_reference(law,reference):
                 ids=[str(n) for n in range(int(ids[0]),int(ids[1])+1)]
             numbers.extend(article_number(n) for n in ids)
     numbers=list(dict.fromkeys(numbers))
+    return numbers
+
+
+def articles_for_reference(law,reference):
+    numbers=reference_article_numbers(reference)
     if not numbers:raise LawParseError('Iz navedbe ni mogoče določiti številke člena')
     selected=[]
     for number in numbers:
@@ -216,7 +221,11 @@ class LawLibrary:
 
     def remember_binding(self,key,references):
         pinned=[]
+        seen=set()
         for reference in references:
+            identity=(reference['source_url'],reference['provision'])
+            if identity in seen:continue
+            seen.add(identity)
             cached=self.find_url(reference['source_url'])
             if cached is None:return
             pinned.append({k:reference[k] for k in ('law_title','provision','source_url')})

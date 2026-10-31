@@ -6,6 +6,8 @@ from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 from legal_explainer import enrich
+from tender_sources import prescribed_links, load_prescribed
+from condition_review import deduplicate
 from scoring_scope import annotate_pages, select_documents, is_criteria
 
 HEADERS={'User-Agent':'KmetRazpisi/1.2 (private SKP document review)'}
@@ -80,11 +82,11 @@ def collect(url, progress=None):
     if b'%PDF-' in raw[:10]:
         raise ValueError('Glavna povezava naj bo spletna objava razpisa, ne PDF')
     soup=BeautifulSoup(raw,'html.parser')
-    text=extract_html(raw)
-    docs=[{'url':final,'title':'Uradna spletna objava','text':text,'pages':None}]
+    docs=[{'url':final,'title':'Povezave s spletne objave','text':'','pages':None,'metadata_only':True,'legal_links':prescribed_links(raw,final)}]
     seen={final}
     candidates=[]
-    for a in soup.select('a[href]'):
+    content=soup.select_one('main') or soup.select_one('article') or soup
+    for a in content.select('a[href]'):
         href=urljoin(final,a['href']).split('#')[0]
         label=' '.join(a.get_text(' ',strip=True).split())
         if href in seen or not allowed(href):continue
@@ -168,6 +170,8 @@ def _ai_extract_chunk(docs, evidence_feedback=None):
       'Vsako postavko razvrsti v category: eligibility za dejanski pogoj upravičenosti, obligation za obveznost upravičenca, selection_threshold za minimalni prag, procedure za tehnična navodila oddaje, information za možnosti ali pojasnila. '
       'Ne izlušči dovoljenj (npr. vlagatelj lahko vloži več vlog), neobveznih polj, opisov informacijskega sistema ali navodil za klikanje kot pogojev upravičenosti. '
       'Naslov label naj neposredno pove konkretno zahtevo v običajni slovenščini. Če razpis vsebuje le sklic, ne ugibaj vsebine člena ali priloge. '
+      'Razpisana sredstva, proračunske postavke in deleži financiranja sami po sebi niso pogoji vlagatelja. '
+      'Vsako neodvisno obveznost izpiši posebej. Ne združuj sklicev na več členov v en končni pogoj. '
       'Ne izmišljaj si pogojev, zneskov ali datumov. Vsak pogoj mora imeti dobeseden kratek citat iz dokumenta '
       'in točen URL vira. Če pogoja ni mogoče enostavno in zanesljivo izraziti z enim od znanih fact_key, '
       'uporabi fact_key="unknown", operator="none", expected=null. Če je pogoj izbiren, mandatory=false. '
@@ -301,7 +305,8 @@ def ai_extract(docs, progress=None):
     # Fail before any paid request if authentication is absent.
     if not os.getenv('OPENAI_API_KEY','').strip():
         raise ValueError('API ključ ni nastavljen: nastavite OPENAI_API_KEY v okolju procesa in znova zaženite aplikacijo')
-    tender_context=next((d['text'][:12000] for d in docs if d.get('pages') is None),'')
+    docs=[d for d in docs if not d.get('metadata_only') and d.get('kind')!='law']
+    tender_context=next((d['text'][:12000] for d in docs if re.search(r'javni.*razpis',d['title'],re.I)),docs[0]['text'][:12000] if docs else '')
     chunks = [{**chunk,'tender_context':tender_context} for chunk in document_chunks(docs)]
     results = ExtractionResults()
     seen = set()
@@ -402,8 +407,10 @@ def analyze(url, progress=None):
     docs,errors,found=collect(url, progress=progress)
     if errors:raise ValueError('Analiza je nepopolna: '+' | '.join(errors))
     if not found:raise ValueError('Na uradni strani ni najdenih PDF-prilog; preverite povezavo do razpisne dokumentacije')
-    analysis_docs=[d for d in docs if not is_criteria(d) and not re.search(r'navodila.*(?:vnos|izpolnjevan|aplikacij)',d['title'],re.I)]
-    selection_warnings=[]
+    analysis_docs=[d for d in docs if not d.get('metadata_only') and not is_criteria(d) and not re.search(r'navodila.*(?:vnos|izpolnjevan|aplikacij)',d['title'],re.I)]
+    legal_links=[link for d in docs if d.get('metadata_only') for link in d.get('legal_links',[])]
+    legal_docs,selection_warnings=load_prescribed(legal_links,progress=progress)
+    if not legal_links:selection_warnings.append('PREDPISI NISO PRIDOBLJENI: v razdelku Predpisi ni bilo najdenih uradnih povezav; pravni sklici lahko ostanejo nerazrešeni.')
     explicit_thresholds=explicit_minimum_points(analysis_docs)
     try:
         extracted=ai_extract(analysis_docs, progress=progress)
@@ -414,7 +421,11 @@ def analyze(url, progress=None):
     for threshold in explicit_thresholds:
         if not any(c.get('fact_key')=='minimum_selection_points' and c.get('evidence_url')==threshold['evidence_url'] and c.get('page_number')==threshold['page_number'] and c.get('expected')==threshold['expected'] and c.get('operator')==threshold['operator'] for c in extracted):
             extracted.append(threshold)
-    enrich(extracted,docs,progress=progress)
+    enrich(extracted,analysis_docs+legal_docs+[{'metadata_only':True,'kind':'legal_catalog','text':'','url':url,'title':'Predpisi','links':legal_links}],progress=progress)
+    extracted[:]=deduplicate(extracted)
+    for item in extracted:
+        resolution=item.get('legal_resolution') or {}
+        if resolution.get('status')=='unresolved':selection_warnings.append('PRAVNI SKLIC NI RAZREŠEN: '+item['label']+' · '+resolution.get('message',''))
     progress(96, "Preverjam rezultate in pripravljam shranjevanje ...")
     if not extracted:raise ValueError('Dokumentacija ne vsebuje dovolj dokazljivih pogojev: AI je vrnil prazen seznam')
     mode='AI' if extracted is not None else 'ključne besede (brez AI)'

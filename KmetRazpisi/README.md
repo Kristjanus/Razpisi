@@ -1,3 +1,27 @@
+## Novost 1.7.0 – samo dokumentacija, priloženi predpisi in ločene zahteve
+
+Besedilo spletne objave se ne pošlje modelu niti kot kontekst. Spletna stran služi
+samo za povezave do dokumentov in razdelka Predpisi. Začetno izluščanje uporablja
+javni razpis in priloge, brez tehničnih navodil za vnos vlog in skupnih meril.
+Povezave do uradnih predpisov iz razdelka Predpisi se pridobijo neposredno.
+Če besedilo ni dosegljivo ali je PISRS le spletni ovoj brez izvoza, se v shranjeni
+analizi izpiše PREDPIS NI DOSTOPEN z imenom, URL-jem in razlogom. Za znani ID se
+lahko uporabi en sam lokalni posnetek z opozorilom o časovni veljavnosti.
+
+Pravni sklic se najprej poveže s pridobljenim predpisom po naslovu. Program nato
+ločeno izbere vsak navedeni člen, AI pa vrne posamezne obvezne zahteve, vsako s
+potrjenim citatom. Sklic na 27., 28. in 29. člen zato ne ostane en naslov, če so
+vsi členi dosegljivi in razlaga preverjena. Pri nepopolni razrešitvi ostane izrecno
+opozorilo, ne izmišljene zahteve. Izjeme se posredujejo pri vsaki razlagi. Celotno
+besedilo zakona ni poslano AI-ju.
+
+Po analizi se združijo enaki normalizirani naslovi z enakim pravilom, obveznostjo,
+številčnimi omejitvami in obsegom. Dodatni viri se ohranijo. Različno ubesedene
+pomenske podvojitve se ne združujejo na slepo; različni sklopi, datumi in izjeme
+ostanejo ločeni. Migracija baze doda stolpec additional_sources brez brisanja.
+Preverjeno s HTML-fixturami in simuliranimi AI-odgovori; živi PISRS/OpenAI še nista
+potrjena v oblačnem okolju zaradi omejitev dostopa in manjkajočega ključa.
+
 ## Novost 1.6.0 – imenik izvozov predpisov in lokalna ponovna uporaba
 
 Zavihek Predpisi prikazuje shranjene ID-je, imena, različice, datume začetka uporabe
@@ -217,7 +241,7 @@ celotne nove analize; prejšnji rezultat ostane. Že opravljeni API klici so klj
 poznejši napaki plačljivi. Dolgi dokumenti zato potrebujejo več časa in več API
 klicev. Pogoji ostajajo nepotrjeni, ker se izjeme lahko nahajajo v drugih sklopih.
 
-# Trenutna različica: 1.6.0
+# Trenutna različica: 1.7.0
 
 Različica 1.3.1 popravlja zajem: edini začetni vir je uradni seznam SKP, dejanski razpisi pa so povezane strani pod `/zbirke/javne-objave/`. Informativne strani iz starih pregledov ostanejo v bazi, vendar niso več prikazane med razpisi. Ročno dodajanje preveri prisotnost povezave na seznamu SKP.
 
