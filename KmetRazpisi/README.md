@@ -1,3 +1,23 @@
+## Novost 1.4.0 – razlage pravnih sklicev; brez skupnih meril
+
+Skupne datoteke »Merila« so izločene že pred prenosom PDF-ja in pred analizo.
+Minimalni prag se še išče v samem razpisu. Pri pogojih s sklicem na člen aplikacija
+uporabi OpenAI Responses web_search, omejen na PISRS, Uradni list in EUR-Lex.
+Nato uradni vir neposredno prenese ter preveri citat. Le preverjene citate opremi
+z razumljivo razlago v razdelku »Kaj pogoj pomeni v praksi«. Izvirni citat razpisa
+ostane viden. Nedosegljiv vir, nepodprt model ali nepotrjen citat pomenijo jasno
+nerazrešen sklic, ne ugibanja. Pravni pogoji vedno ostanejo za ročni pregled.
+To ni potrditev, da so razrešeni vsi nadaljnji sklici ali prava časovna različica.
+
+Potreben je model z Responses web_search (nastavljiv z OPENAI_LEGAL_MODEL), API
+ključ in omrežni dostop do api.openai.com ter uradnih pravnih domen. Iskanje ima
+ločeno API-porabo; za vsak različen citat pogoja se lahko opravi dodaten klic.
+Vrednosti profila kmetije se pri tem ne pošiljajo, pošlje se citat in kontekst
+razpisne dokumentacije. SPA ali zaščiteni viri brez dostopnega besedila lahko
+preprečijo preverjanje citata. Pridobivanje pravnih virov in njihova razlaga sta
+preverjena s simuliranimi odgovori, ne s produkcijskim ključem. Migracija baze
+samo doda stolpec legal_resolution in ne briše podatkov. Stare analize ponovite.
+
 ## Novost 1.3.9 – preverjeno na priloženih dejanskih PDF-jih
 
 Razčlenjevalnik prepozna ločeni vrstici številke razdelka in naslova IRP v merilih
@@ -89,7 +109,7 @@ celotne nove analize; prejšnji rezultat ostane. Že opravljeni API klici so klj
 poznejši napaki plačljivi. Dolgi dokumenti zato potrebujejo več časa in več API
 klicev. Pogoji ostajajo nepotrjeni, ker se izjeme lahko nahajajo v drugih sklopih.
 
-# Trenutna različica: 1.3.9
+# Trenutna različica: 1.4.0
 
 Različica 1.3.1 popravlja zajem: edini začetni vir je uradni seznam SKP, dejanski razpisi pa so povezane strani pod `/zbirke/javne-objave/`. Informativne strani iz starih pregledov ostanejo v bazi, vendar niso več prikazane med razpisi. Ročno dodajanje preveri prisotnost povezave na seznamu SKP.
 

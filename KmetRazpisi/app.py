@@ -31,7 +31,7 @@ def init():
  with conn() as c:
   c.executescript(SCHEMA)
   columns={r['name'] for r in c.execute('PRAGMA table_info(analysis_conditions)')}
-  for name, kind in [('document_title','TEXT'),('page_number','INTEGER')]:
+  for name, kind in [('document_title','TEXT'),('page_number','INTEGER'),('legal_resolution','TEXT')]:
    if name not in columns:c.execute(f'ALTER TABLE analysis_conditions ADD COLUMN {name} {kind}')
   if not c.execute('SELECT 1 FROM farm').fetchone():c.execute('INSERT INTO farm VALUES(1,?,?)',(json.dumps(DEFAULT,ensure_ascii=False),now()))
   for name,url in SOURCES:c.execute('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)',('source:'+name,url))
@@ -66,8 +66,8 @@ def analyze_tender(tid, progress=None):
  with conn() as c:
   c.execute('DELETE FROM analysis_conditions WHERE tender_id=?',(tid,))
   for item in result['conditions']:
-   c.execute('INSERT INTO analysis_conditions(tender_id,label,fact_key,operator,expected,mandatory,fixed,evidence_url,evidence_quote,explanation,analysis_mode,created_at,document_title,page_number) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-    (tid,item['label'][:350],item['fact_key'],item['operator'],json.dumps(item['expected'],ensure_ascii=False),int(item['mandatory']),int(item['fixed']),item['evidence_url'],item['evidence_quote'][:1500],item['explanation'][:900],result['mode'],now(),item.get('document_title'),item.get('page_number')))
+   c.execute('INSERT INTO analysis_conditions(tender_id,label,fact_key,operator,expected,mandatory,fixed,evidence_url,evidence_quote,explanation,analysis_mode,created_at,document_title,page_number,legal_resolution) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+    (tid,item['label'][:350],item['fact_key'],item['operator'],json.dumps(item['expected'],ensure_ascii=False),int(item['mandatory']),int(item['fixed']),item['evidence_url'],item['evidence_quote'][:1500],item['explanation'][:900],result['mode'],now(),item.get('document_title'),item.get('page_number'),json.dumps(item.get('legal_resolution'),ensure_ascii=False)))
   c.execute('INSERT INTO analysis_runs(tender_id,document_hash,mode,analyzed_at,documents,warnings) VALUES(?,?,?,?,?,?) ON CONFLICT(tender_id) DO UPDATE SET document_hash=excluded.document_hash,mode=excluded.mode,analyzed_at=excluded.analyzed_at,documents=excluded.documents,warnings=excluded.warnings',
     (tid,result['digest'],result['mode'],now(),json.dumps(result['documents'],ensure_ascii=False),json.dumps(result['warnings'],ensure_ascii=False)))
  return {'count':len(result['conditions']),'documents':result['documents'],'warnings':result['warnings'],'mode':result['mode'],'pdf_links_found':result['pdf_links_found']}

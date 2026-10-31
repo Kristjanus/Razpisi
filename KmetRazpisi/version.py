@@ -1,2 +1,2 @@
 """Application release identifier. Increment for each published application update."""
-VERSION = "1.3.9"
+VERSION = "1.4.0"

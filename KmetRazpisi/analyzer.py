@@ -5,6 +5,7 @@ import io, json, os, re, hashlib, unicodedata, math
 from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
+from legal_explainer import enrich
 from scoring_scope import annotate_pages, select_documents, is_criteria
 
 HEADERS={'User-Agent':'KmetRazpisi/1.2 (private SKP document review)'}
@@ -88,6 +89,7 @@ def collect(url, progress=None):
         href=urljoin(final,a['href']).split('#')[0]
         label=' '.join(a.get_text(' ',strip=True).split())
         if href in seen or not allowed(href):continue
+        if is_criteria({'url':href,'title':label}):continue
         if re.search(r'\.pdf(?:\?|$)',href,re.I) or a.get('type','').lower()=='application/pdf' or ('pdf' in label.lower() and ('download' in href.lower() or '/assets/' in href.lower())):
             seen.add(href);candidates.append((href,label))
     failures=[]
@@ -377,9 +379,8 @@ def analyze(url, progress=None):
     docs,errors,found=collect(url, progress=progress)
     if errors:raise ValueError('Analiza je nepopolna: '+' | '.join(errors))
     if not found:raise ValueError('Na uradni strani ni najdenih PDF-prilog; preverite povezavo do razpisne dokumentacije')
-    references,reference_warnings=extract_merit_references(docs,progress=progress) if any(is_criteria(d) for d in docs) else ([],[])
-    analysis_docs,selection_warnings=select_documents(docs,references=references)
-    selection_warnings=reference_warnings+selection_warnings
+    analysis_docs=[d for d in docs if not is_criteria(d)]
+    selection_warnings=[]
     explicit_thresholds=explicit_minimum_points(analysis_docs)
     try:
         extracted=ai_extract(analysis_docs, progress=progress)
@@ -390,6 +391,7 @@ def analyze(url, progress=None):
     for threshold in explicit_thresholds:
         if not any(c.get('fact_key')=='minimum_selection_points' and c.get('evidence_url')==threshold['evidence_url'] and c.get('page_number')==threshold['page_number'] and c.get('expected')==threshold['expected'] and c.get('operator')==threshold['operator'] for c in extracted):
             extracted.append(threshold)
+    enrich(extracted,analysis_docs,progress=progress)
     progress(96, "Preverjam rezultate in pripravljam shranjevanje ...")
     if not extracted:raise ValueError('Dokumentacija ne vsebuje dovolj dokazljivih pogojev: AI je vrnil prazen seznam')
     mode='AI' if extracted is not None else 'ključne besede (brez AI)'

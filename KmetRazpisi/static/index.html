@@ -33,6 +33,13 @@ function sourceDocumentLink(url,title,pages=[]){
  const pageText=pages.length?' · '+(pages.length===1?'stran ':'strani ')+pages.join(', '):'';
  return '<a target="_blank" rel="noopener noreferrer" href="'+esc(url)+(pages.length?'#page='+pages[0]:'')+'">'+esc(name)+' ↗</a>'+esc(pageText)+(filename&&filename!==name?' <span class="muted">('+esc(filename)+')</span>':'');
 }
+function renderLegalResolution(c){
+ let resolution;try{resolution=typeof c.legal_resolution==='string'?JSON.parse(c.legal_resolution):c.legal_resolution}catch(e){}
+ if(!resolution)return '';
+ return '<div class="condition"><h4>Kaj pogoj pomeni v praksi</h4><p class="warning">'+esc(resolution.message)+'</p>'+(resolution.provisions||[]).map(p=>
+  '<div><p><strong>'+esc(p.explanation)+'</strong></p><p>Predpis: '+sourceDocumentLink(p.source_url,p.law_title)+' · '+esc(p.provision)+'</p><p class="muted">'+esc(p.version_note)+'</p><details><summary>Uradno besedilo določbe</summary><div class="pre">'+esc(p.source_quote)+'</div></details></div>'
+ ).join('')+'</div>';
+}
 function renderMeritReferences(docs){
  const criteria=docs.filter(d=>Array.isArray(d.selection_references)&&d.selection_references.length);
  if(!criteria.length)return '<div class="condition"><h3>Vir izbora tabel meril</h3><p>Dokazljiv sklic na relevantne tabele ni shranjen. Pri starejših rezultatih ponovite analizo; sicer preverite opozorila.</p></div>';
@@ -60,9 +67,9 @@ function renderAutomatic(a){
  let docs=[];let warnings=[];try{docs=JSON.parse(run.documents||'[]');warnings=JSON.parse(run.warnings||'[]')}catch(e){}
  $('autoMeta').innerHTML=(run.mode!=='AI'?'<p class="warning">To je shranjen rezultat stare analize brez AI. Za novo analizo kliknite »Analiziraj dokumentacijo«. Ob napaki se ta prejšnji rezultat ohrani.</p>':'')+'<p>Način zadnje shranjene analize: <strong>'+esc(run.mode)+'</strong> · analizirano '+esc(run.analyzed_at)+' · '+conditions.length+' zaznanih pogojev</p>'+
  '<p>Dokumenti: '+docs.map(d=>'<a target="_blank" rel="noopener noreferrer" href="'+esc(d.url)+'">'+esc(d.title)+'</a>'+(d.selected_pages?' (AI: '+d.selected_pages.length+'/'+d.pages+' strani; strani '+esc(d.selected_pages.join(', '))+')':'')).join(' · ')+'</p>'+
- (warnings.length?'<p class="warning">Opozorila: '+esc(warnings.join(' | '))+'</p>':'')+renderMeritReferences(docs);
+ (warnings.length?'<p class="warning">Opozorila: '+esc(warnings.join(' | '))+'</p>':'');
  const status={met:'✓ Podatek se ujema',unmet_fixed:'✗ Podatek se ne ujema',unmet_changeable:'✗ Podatek se ne ujema',unknown:'? Manjka natančen podatek',manual_review:'Za ročni pregled'};
- $('autoConditions').innerHTML=conditions.map(c=>'<div class="condition"><div class="row"><strong>'+esc(c.label)+'</strong><span class="tag">'+esc(status[c.result]||'Neznano')+'</span></div><p class="warning small">⚠ Samodejno zaznano – ni potrjen pravni pogoj; rezultat je informativen.</p><p class="small">'+esc(c.explanation||'')+'</p><p class="small">Izvorni dokument: '+sourceDocumentLink(c.evidence_url,c.document_title||docs.find(d=>d.url===c.evidence_url)?.title,c.page_number?[c.page_number]:[])+'</p><div class="pre">'+esc(c.evidence_quote||'')+'</div></div>').join('')||'<p class="muted">Ni bilo mogoče zanesljivo izluščiti pogojev. Odprite uradno dokumentacijo in jih preverite ročno.</p>';
+ $('autoConditions').innerHTML=conditions.map(c=>'<div class="condition"><div class="row"><strong>'+esc(c.label)+'</strong><span class="tag">'+esc(status[c.result]||'Neznano')+'</span></div><p class="warning small">⚠ Samodejno zaznano – ni potrjen pravni pogoj; rezultat je informativen.</p><p class="small">'+esc(c.explanation||'')+'</p>'+renderLegalResolution(c)+'<p class="small">Izvorni dokument: '+sourceDocumentLink(c.evidence_url,c.document_title||docs.find(d=>d.url===c.evidence_url)?.title,c.page_number?[c.page_number]:[])+'</p><div class="pre">'+esc(c.evidence_quote||'')+'</div></div>').join('')||'<p class="muted">Ni bilo mogoče zanesljivo izluščiti pogojev. Odprite uradno dokumentacijo in jih preverite ročno.</p>';
 }
 function displayProgress(job){
  $('analysisProgress').classList.remove('hidden');

@@ -459,14 +459,14 @@ class CriteriaSelection(unittest.TestCase):
         self.assertEqual(chosen,[primary])
         self.assertIn('NEPOPOLNA ANALIZA',warnings[0])
 
-    def test_pipeline_passes_only_selected_pages_to_condition_extraction(self):
+    def test_pipeline_excludes_criteria_completely(self):
         primary,criteria=self.fixture()
         result=analyzer.ExtractionResults();result.append({'label':'Verified'})
         with patch('analyzer.collect',return_value=([primary,criteria],[],1)),patch('analyzer.extract_merit_references',return_value=([dict(anchor='IRP01')],[])),patch('analyzer.ai_extract',return_value=result) as extract:
             output=analyzer.analyze(primary['url'])
-        sent=extract.call_args.args[0][1]
-        self.assertNotIn(20,sent['selected_pages'])
-        self.assertEqual(output['documents'][1]['selected_pages'],sent['selected_pages'])
+        sent=extract.call_args.args[0]
+        self.assertEqual(sent,[primary])
+        self.assertEqual(len(output['documents']),1)
 
 class UploadedDocumentRegression(unittest.TestCase):
     def fixture(self):
@@ -501,3 +501,66 @@ class UploadedDocumentRegression(unittest.TestCase):
         selected,warnings=select_documents([primary,criteria],[dict(anchor='IRP16')])
         self.assertEqual(selected,[primary])
         self.assertTrue(any('8.' in w and '11.' in w and 'NI poslan' in w for w in warnings))
+
+class LegalExplanation(unittest.TestCase):
+    def response(self,provision):
+        return Mock(ok=True,json=lambda:{'output':[
+            {'type':'web_search_call','action':{'sources':[{'url':provision['source_url']}]}},
+            {'type':'message','content':[{'type':'output_text','text':json.dumps({'provisions':[provision]})}]}]})
+
+    def provision(self):
+        return dict(law_title='Uredba – testni primer',provision='20. člen, prvi odstavek',source_url='https://pisrs.si/pregledPredpisa?id=TEST',source_quote='Vlagatelj mora biti vpisan v register kmetijskih gospodarstev.',explanation='Kmetija mora biti vpisana v register kmetijskih gospodarstev.',version_note='Časovno veljavnost je treba potrditi.')
+
+    def test_grounded_quote_is_verified_before_explanation(self):
+        import legal_explainer as legal
+        p=self.provision()
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('legal_explainer.requests.post',return_value=self.response(p)),patch('legal_explainer.source_text',return_value=p['source_quote']):
+            result=legal.explain({'evidence_quote':'Pogoji iz 20. člena uredbe.'},'Uredba – testni primer')
+        self.assertEqual(result['status'],'explained')
+        self.assertEqual(result['provisions'][0]['explanation'],p['explanation'])
+
+    def test_invented_quote_is_not_explained(self):
+        import legal_explainer as legal
+        p=self.provision()
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('legal_explainer.requests.post',return_value=self.response(p)),patch('legal_explainer.source_text',return_value='Something else'):
+            result=legal.explain({'evidence_quote':'Pogoji iz 20. člena uredbe.'},'Uredba')
+        self.assertEqual(result['status'],'unresolved')
+        self.assertEqual(result['provisions'],[])
+
+    def test_unofficial_source_rejected(self):
+        import legal_explainer as legal
+        p=self.provision();p['source_url']='https://example.com/law'
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('legal_explainer.requests.post',return_value=self.response(p)),patch('legal_explainer.source_text') as fetch:
+            result=legal.explain({'evidence_quote':'20. člen'},'Uredba')
+        fetch.assert_not_called();self.assertEqual(result['status'],'unresolved')
+
+    def test_references_remain_manual_and_duplicate_lookup_is_reused(self):
+        import legal_explainer as legal
+        rule=dict(fact_key='cows_min',operator='gte',expected=20,fixed=True,evidence_quote='Izpolnjuje 20. člen uredbe, razen tretjega odstavka.')
+        with patch('legal_explainer.explain',return_value={'status':'unresolved','message':'No source','provisions':[]}) as explain:
+            result=legal.enrich([rule.copy(),rule.copy()],[dict(text='Uredba')])
+        self.assertEqual(explain.call_count,1)
+        self.assertEqual(result[0]['fact_key'],'unknown')
+        self.assertIn('razen tretjega',result[0]['evidence_quote'])
+
+    def test_criteria_not_downloaded(self):
+        html=b'<main><a href="https://www.gov.si/assets/Merila_za_izbor.pdf">Merila za izbor</a><a href="https://www.gov.si/assets/Razpis.pdf">Javni razpis</a></main>'
+        with fitz.open() as doc:
+            doc.new_page().insert_text((40,60),'Official call document with sufficient text.');pdf=doc.tobytes()
+        with patch('analyzer.get',side_effect=[('https://www.gov.si/call',html,'text/html'),('https://www.gov.si/assets/Razpis.pdf',pdf,'application/pdf')]) as fetch:
+            docs,errors,count=analyzer.collect('https://www.gov.si/call')
+        self.assertEqual(fetch.call_count,2)
+        self.assertEqual(count,1)
+        self.assertFalse(any('Merila' in d['url'] for d in docs))
+
+    def test_legal_resolution_persists_without_destroying_other_data(self):
+        with tempfile.TemporaryDirectory() as tmp,patch.object(app,'DB',Path(tmp)/'legal.sqlite3'):
+            app.init()
+            with app.conn() as c:tid=c.execute("insert into tenders(title,url) values('Test',?)",(URL,)).lastrowid
+            item=dict(label='Register',fact_key='unknown',operator='none',expected=None,mandatory=True,fixed=False,evidence_url=URL,evidence_quote='20. člen',explanation='See law',legal_resolution={'status':'explained','message':'Review','provisions':[self.provision()]})
+            result=dict(conditions=[item],digest='hash',mode='AI',documents=[],warnings=[],pdf_links_found=1)
+            with patch('app.analyze',return_value=result):app.analyze_tender(tid)
+            stored=app.automated_assessment(tid,app.DEFAULT)['conditions'][0]
+            self.assertEqual(json.loads(stored['legal_resolution'])['provisions'][0]['provision'],'20. člen, prvi odstavek')
+            app.init()
+            with app.conn() as c:self.assertEqual(c.execute('select count(*) from analysis_conditions').fetchone()[0],1)
