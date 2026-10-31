@@ -564,3 +564,67 @@ class LegalExplanation(unittest.TestCase):
             self.assertEqual(json.loads(stored['legal_resolution'])['provisions'][0]['provision'],'20. člen, prvi odstavek')
             app.init()
             with app.conn() as c:self.assertEqual(c.execute('select count(*) from analysis_conditions').fetchone()[0],1)
+
+class ConditionQuality(unittest.TestCase):
+    def test_permission_is_not_a_condition_even_if_model_misclassifies_it(self):
+        case=Extraction();case.setUp()
+        quote='Vlagatelj lahko na javni razpis vloži več vlog.'
+        case.docs[0].update(text=quote,page_texts=[dict(number=3,text=quote)])
+        case.item.update(category='eligibility',evidence_quote=quote,label='Vlagatelj lahko vloži več vlog')
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('analyzer.requests.post',return_value=case.response(json.dumps({'conditions':[case.item]}))):
+            self.assertEqual(analyzer.ai_extract(case.docs),[])
+
+    def test_information_and_procedural_items_are_excluded(self):
+        case=Extraction();case.setUp()
+        for category in ('information','procedure'):
+            with self.subTest(category=category):
+                case.item['category']=category
+                with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('analyzer.requests.post',return_value=case.response(json.dumps({'conditions':[case.item]}))):
+                    self.assertEqual(analyzer.ai_extract(case.docs),[])
+
+    def test_legal_explanation_becomes_title(self):
+        import legal_explainer as legal
+        rule=dict(label='Vlagatelj mora izpolnjevati 20. člen uredbe',evidence_quote='Izpolnjuje 20. člen uredbe.')
+        provision=LegalExplanation().provision()
+        with patch('legal_explainer.explain',return_value=dict(status='explained',message='Review',provisions=[provision])):
+            result=legal.enrich([rule],[dict(title='Razpis',text='Test')])
+        self.assertEqual(result[0]['label'],provision['explanation'])
+        self.assertEqual(result[0]['evidence_quote'],'Izpolnjuje 20. člen uredbe.')
+
+    def test_annex_content_becomes_title_with_confirmed_source(self):
+        import legal_explainer as legal
+        quote='Upravičena so območja A in B, poškodovana zaradi neurja.'
+        rule=dict(label='Območje iz priloge 1',evidence_quote='Podpora se dodeli samo na območju iz priloge 1 javnega razpisa.')
+        annex=dict(title='Priloga 1 – območja',url=URL,text=quote)
+        response=Mock(ok=True,json=lambda:{'choices':[{'message':{'content':json.dumps({'label':'Aktivnosti morajo biti na območjih A ali B, poškodovanih zaradi neurja','quote':quote})}}]})
+        with patch('legal_explainer.requests.post',return_value=response):legal.resolve_annexes([rule],[annex])
+        self.assertIn('A ali B',rule['label'])
+        self.assertEqual(rule['legal_resolution']['provisions'][0]['source_url'],URL)
+
+    def test_missing_annex_is_not_invented(self):
+        import legal_explainer as legal
+        rule=dict(label='Območje',evidence_quote='Na območju iz priloge 1 javnega razpisa.')
+        with patch('legal_explainer.requests.post') as request:legal.resolve_annexes([rule],[])
+        request.assert_not_called();self.assertIn('ni pridobljena',rule['label'])
+
+class IRP15Call(unittest.TestCase):
+    def test_actual_four_page_call_does_not_invent_45_points(self):
+        data=json.loads((Path(__file__).parent/'fixtures'/'irp15_2_call.json').read_text(encoding='utf-8'))
+        doc=dict(title='Javni razpis',url=URL,page_texts=data['pages'],pages=4,text='\n'.join(p['text'] for p in data['pages']))
+        self.assertEqual(analyzer.explicit_minimum_points([doc]),[])
+        self.assertIn('ODPRTI',doc['text'])
+        self.assertNotIn('vstopni prag',doc['text'].casefold())
+
+class AnnexDOCX(unittest.TestCase):
+    def test_retrieves_docx_annex_text_for_condition_resolution(self):
+        import io,zipfile
+        stream=io.BytesIO()
+        with zipfile.ZipFile(stream,'w') as archive:
+            archive.writestr('word/document.xml','<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Upravičeni območji sta A in B.</w:t></w:r></w:p></w:body></w:document>')
+        url='https://www.gov.si/assets/Priloga1.docx'
+        html=f'<main><a href="{url}">Priloga 1 – območja</a></main>'.encode()
+        with patch('analyzer.get',side_effect=[('https://www.gov.si/call',html,'text/html'),(url,stream.getvalue(),'application/vnd.openxmlformats-officedocument.wordprocessingml.document')]):
+            docs,errors,count=analyzer.collect('https://www.gov.si/call')
+        self.assertEqual(errors,[])
+        self.assertIn('Upravičeni območji sta A in B.',docs[1]['text'])
+        self.assertEqual(docs[1]['title'],'Priloga 1 – območja')

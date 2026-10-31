@@ -36,9 +36,9 @@ function sourceDocumentLink(url,title,pages=[]){
 function renderLegalResolution(c){
  let resolution;try{resolution=typeof c.legal_resolution==='string'?JSON.parse(c.legal_resolution):c.legal_resolution}catch(e){}
  if(!resolution)return '';
- return '<div class="condition"><h4>Kaj pogoj pomeni v praksi</h4><p class="warning">'+esc(resolution.message)+'</p>'+(resolution.provisions||[]).map(p=>
-  '<div><p><strong>'+esc(p.explanation)+'</strong></p><p>Predpis: '+sourceDocumentLink(p.source_url,p.law_title)+' · '+esc(p.provision)+'</p><p class="muted">'+esc(p.version_note)+'</p><details><summary>Uradno besedilo določbe</summary><div class="pre">'+esc(p.source_quote)+'</div></details></div>'
- ).join('')+'</div>';
+ return '<p class="warning small">'+esc(resolution.message)+'</p>'+(resolution.provisions||[]).map(p=>
+  '<p class="small">Vir razložene zahteve: '+sourceDocumentLink(p.source_url,p.law_title)+' · '+esc(p.provision)+'</p><p class="muted">'+esc(p.version_note)+'</p><details><summary>Citat iz predpisa ali priloge</summary><div class="pre">'+esc(p.source_quote)+'</div></details>'
+ ).join('');
 }
 function renderMeritReferences(docs){
  const criteria=docs.filter(d=>Array.isArray(d.selection_references)&&d.selection_references.length);
@@ -57,7 +57,7 @@ function renderMinimumPoints(conditions,hasRun){
   let points;try{points=JSON.parse(c.expected)}catch(e){points=null}
   const value=typeof points==='number'&&Number.isFinite(points)?(c.operator==='gt'?'Več kot ':'Najmanj ')+points+' točk':'Prag zahteva pregled';
   return '<div class="condition"><strong>'+esc(value)+'</strong><p>'+esc(c.label)+'</p><p>'+esc(c.explanation||'')+'</p><a target="_blank" rel="noopener noreferrer" href="'+esc(c.evidence_url)+(c.page_number?'#page='+c.page_number:'')+'">'+esc(c.document_title||'Uradni vir')+(c.page_number?' · stran '+c.page_number:'')+'</a><div class="pre">'+esc(c.evidence_quote)+'</div></div>';
- }).join(''):'<p>'+(hasRun?'Neznano — v zadnji analizi ni bil izluščen potrjen citat o minimalnem pragu. To ne pomeni, da praga ni. Po posodobitvi analizo ponovite.':'Prag še ni analiziran.')+'</p>')+
+ }).join(''):'<p>'+(hasRun?'V prebranih dokumentih minimalni prag točk ni naveden oziroma ni potrjeno izluščen. Morebitna zahteva v sklicevanih predpisih ostaja nepreverjena; to ne pomeni 0 točk.':'Prag še ni analiziran.')+'</p>')+
  '<p class="muted">Možnih točk vaše kmetije še ne izračunavamo. Dosežen minimalni prag ne zagotavlja financiranja.</p>';
 }
 function renderAutomatic(a){

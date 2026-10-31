@@ -1,3 +1,20 @@
+## Novost 1.4.1 – samo dejanske zahteve in neposredni naslovi
+
+AI razvršča pogoje upravičenosti, obveznosti, pragove, postopkovna navodila in
+informacije. Dovoljenja, kot je »lahko vloži več vlog«, se izločijo. Tehnična
+navodila za vnos vlog se ne obravnavajo kot vir pogojev upravičenosti.
+Razlage potrjenih določb in pridobljenih prilog se vključijo v naslov pogoja;
+ločenega okvirja »Kaj pogoj pomeni v praksi« ni več. Viri, citati in opozorila
+ostanejo pod naslovom. Priloge v DOCX se lahko preberejo poleg PDF-jev. Če
+priloga manjka ali citat ni potrjen, naslov to jasno pove in vsebina se ne ugiba.
+HTTP-napaka pravnega iskanja izpiše tudi kodo/parameter napake, brez ključa.
+
+Priloženi razpis IRP15.2 ima štiri strani in ne navaja minimalnega praga točk.
+Ne sme podedovati praga 45 točk iz drugega razpisa. Morebitna dodatna zahteva v
+sklicevani uredbi ostaja nepreverjena, dokler predpis ni uspešno pridobljen.
+Spremembe so preverjene z dejanskim PDF-jem ter simuliranimi AI-odgovori;
+produkcijski pravni web_search še ni potrjen.
+
 ## Novost 1.4.0 – razlage pravnih sklicev; brez skupnih meril
 
 Skupne datoteke »Merila« so izločene že pred prenosom PDF-ja in pred analizo.
@@ -109,7 +126,7 @@ celotne nove analize; prejšnji rezultat ostane. Že opravljeni API klici so klj
 poznejši napaki plačljivi. Dolgi dokumenti zato potrebujejo več časa in več API
 klicev. Pogoji ostajajo nepotrjeni, ker se izjeme lahko nahajajo v drugih sklopih.
 
-# Trenutna različica: 1.4.0
+# Trenutna različica: 1.4.1
 
 Različica 1.3.1 popravlja zajem: edini začetni vir je uradni seznam SKP, dejanski razpisi pa so povezane strani pod `/zbirke/javne-objave/`. Informativne strani iz starih pregledov ostanejo v bazi, vendar niso več prikazane med razpisi. Ročno dodajanje preveri prisotnost povezave na seznamu SKP.
 

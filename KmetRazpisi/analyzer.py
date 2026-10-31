@@ -90,7 +90,7 @@ def collect(url, progress=None):
         label=' '.join(a.get_text(' ',strip=True).split())
         if href in seen or not allowed(href):continue
         if is_criteria({'url':href,'title':label}):continue
-        if re.search(r'\.pdf(?:\?|$)',href,re.I) or a.get('type','').lower()=='application/pdf' or ('pdf' in label.lower() and ('download' in href.lower() or '/assets/' in href.lower())):
+        if re.search(r'\.(?:pdf|docx)(?:\?|$)',href,re.I) or a.get('type','').lower()=='application/pdf' or ('pdf' in label.lower() and ('download' in href.lower() or '/assets/' in href.lower())):
             seen.add(href);candidates.append((href,label))
     failures=[]
     if len(candidates)>MAX_DOCS:failures.append('Analiza je nepopolna: več kot 8 PDF-prilog')
@@ -98,6 +98,14 @@ def collect(url, progress=None):
         progress(5 + 20*(number-1)/max(1,len(candidates)), f"Prenašam in berem PDF {number}/{len(candidates)}: {label or href}")
         try:
             dest,pdf,ct=get(href)
+            if re.search(r'\.docx(?:\?|$)',href,re.I):
+                import zipfile,xml.etree.ElementTree as ET
+                with zipfile.ZipFile(io.BytesIO(pdf)) as archive:
+                    if sum(i.file_size for i in archive.infolist())>24_000_000:raise ValueError('DOCX je po razširitvi prevelik')
+                    xml=ET.fromstring(archive.read('word/document.xml'))
+                    txt='\n'.join(''.join(node.itertext()) for node in xml.findall('.//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p'))
+                docs.append({'url':dest,'title':label or 'DOCX priloga','text':txt,'pages':None,'sha256':hashlib.sha256(pdf).hexdigest()})
+                continue
             if not pdf.startswith(b'%PDF-'):raise ValueError('Povezava ni vrnila PDF dokumenta')
             pages = read_pdf(pdf)
             docs.append({'url':dest,'title':label or 'PDF priloga',
@@ -153,12 +161,15 @@ def _ai_extract_chunk(docs, evidence_feedback=None):
         raise ValueError("Analiza je nepopolna: dokumentacija presega omejitev 100.000 znakov; potrebna je analiza po delih")
     context='\n\n'.join(f'VIR: {d["url"]}\nNASLOV: {d["title"]}\n{d["text"]}' for d in docs)
     schema={'type':'object','additionalProperties':False,'properties':{'conditions':{'type':'array','items':{'type':'object','additionalProperties':False,'properties':{
-        'label':{'type':'string'},'fact_key':{'type':'string','enum':['municipality','activity','mountain_area','cows_min','cows_max','land_min','land_max','milk_min','milk_max','pasture','farm_registered','legal_form','omd_points','organic','minimum_selection_points','unknown']},
+        'category':{'type':'string','enum':['eligibility','obligation','selection_threshold','procedure','information']},'label':{'type':'string'},'fact_key':{'type':'string','enum':['municipality','activity','mountain_area','cows_min','cows_max','land_min','land_max','milk_min','milk_max','pasture','farm_registered','legal_form','omd_points','organic','minimum_selection_points','unknown']},
         'operator':{'type':'string','enum':['eq','neq','gte','gt','lte','in','contains','none']},'expected':{'type':['string','number','boolean','null']},
         'mandatory':{'type':'boolean'},'fixed':{'type':'boolean'},'evidence_url':{'type':'string'},'evidence_quote':{'type':'string'},'explanation':{'type':'string'}},
-        'required':['label','fact_key','operator','expected','mandatory','fixed','evidence_url','evidence_quote','explanation']}}},'required':['conditions']}
+        'required':['category','label','fact_key','operator','expected','mandatory','fixed','evidence_url','evidence_quote','explanation']}}},'required':['conditions']}
     tender_context=docs[0].get('tender_context','') if docs else ''
     prompt=('Izlušči SAMO izrecne pogoje upravičenosti za prijavitelja ali kmetijo iz slovenskega razpisa SKP. '
+      'Vsako postavko razvrsti v category: eligibility za dejanski pogoj upravičenosti, obligation za obveznost upravičenca, selection_threshold za minimalni prag, procedure za tehnična navodila oddaje, information za možnosti ali pojasnila. '
+      'Ne izlušči dovoljenj (npr. vlagatelj lahko vloži več vlog), neobveznih polj, opisov informacijskega sistema ali navodil za klikanje kot pogojev upravičenosti. '
+      'Naslov label naj neposredno pove konkretno zahtevo v običajni slovenščini. Če razpis vsebuje le sklic, ne ugibaj vsebine člena ali priloge. '
       'Ne izmišljaj si pogojev, zneskov ali datumov. Vsak pogoj mora imeti dobeseden kratek citat iz dokumenta '
       'in točen URL vira. Če pogoja ni mogoče enostavno in zanesljivo izraziti z enim od znanih fact_key, '
       'uporabi fact_key="unknown", operator="none", expected=null. Če je pogoj izbiren, mandatory=false. '
@@ -202,6 +213,11 @@ def _ai_extract_chunk(docs, evidence_feedback=None):
             raise ValueError('AI ni vrnil vseh zahtevanih polj pogoja')
         if any(not isinstance(item[k],str) for k in ('label','fact_key','operator','evidence_url','evidence_quote','explanation')) or any(type(item[k]) is not bool for k in ('mandatory','fixed')):
             raise ValueError('AI je vrnil neveljavne tipe polj')
+        category=item.get('category')
+        if category is not None and category not in ('eligibility','obligation','selection_threshold','procedure','information'):
+            raise ValueError('AI je vrnil neveljavno vrsto postavke')
+        if category in ('procedure','information'):continue
+        if re.search(r'lahko(?:\s+na\s+javni\s+razpis)?\s+vloži\s+več\s+vlog',item['evidence_quote'],re.I):continue
         if item['fact_key']=='minimum_selection_points':
             if type(item['expected']) not in (int,float) or not math.isfinite(item['expected']) or item['expected']<0 or item['operator'] not in ('gte','gt'):
                 raise ValueError('AI je vrnil neveljaven minimalni prag točk')
@@ -379,7 +395,7 @@ def analyze(url, progress=None):
     docs,errors,found=collect(url, progress=progress)
     if errors:raise ValueError('Analiza je nepopolna: '+' | '.join(errors))
     if not found:raise ValueError('Na uradni strani ni najdenih PDF-prilog; preverite povezavo do razpisne dokumentacije')
-    analysis_docs=[d for d in docs if not is_criteria(d)]
+    analysis_docs=[d for d in docs if not is_criteria(d) and not re.search(r'navodila.*(?:vnos|izpolnjevan|aplikacij)',d['title'],re.I)]
     selection_warnings=[]
     explicit_thresholds=explicit_minimum_points(analysis_docs)
     try:
@@ -391,7 +407,7 @@ def analyze(url, progress=None):
     for threshold in explicit_thresholds:
         if not any(c.get('fact_key')=='minimum_selection_points' and c.get('evidence_url')==threshold['evidence_url'] and c.get('page_number')==threshold['page_number'] and c.get('expected')==threshold['expected'] and c.get('operator')==threshold['operator'] for c in extracted):
             extracted.append(threshold)
-    enrich(extracted,analysis_docs,progress=progress)
+    enrich(extracted,docs,progress=progress)
     progress(96, "Preverjam rezultate in pripravljam shranjevanje ...")
     if not extracted:raise ValueError('Dokumentacija ne vsebuje dovolj dokazljivih pogojev: AI je vrnil prazen seznam')
     mode='AI' if extracted is not None else 'ključne besede (brez AI)'
