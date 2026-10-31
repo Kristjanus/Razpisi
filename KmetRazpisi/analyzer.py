@@ -93,6 +93,10 @@ def collect(url, progress=None):
         if is_criteria({'url':href,'title':label}):continue
         if re.search(r'\.(?:pdf|docx)(?:\?|$)',href,re.I) or a.get('type','').lower()=='application/pdf' or ('pdf' in label.lower() and ('download' in href.lower() or '/assets/' in href.lower())):
             seen.add(href);candidates.append((href,label))
+    # GOV.SI commonly publishes the same call in PDF and DOCX. Prefer PDF
+    # for equal URL stem and directory; keep separately named amendments.
+    pdf_stems={re.sub(r'\.pdf(?=\?|$)','',href,flags=re.I) for href,label in candidates if re.search(r'\.pdf(?:\?|$)',href,re.I)}
+    candidates=[(href,label) for href,label in candidates if not (re.search(r'\.docx(?:\?|$)',href,re.I) and re.sub(r'\.docx(?=\?|$)','',href,flags=re.I) in pdf_stems)]
     failures=[]
     for number,(href,label) in enumerate(candidates,1):
         progress(5 + 20*(number-1)/max(1,len(candidates)), f"Prenašam in berem prilogo {number}/{len(candidates)}: {label or href}")
@@ -161,13 +165,14 @@ def _ai_extract_chunk(docs, evidence_feedback=None):
         raise ValueError("Analiza je nepopolna: dokumentacija presega omejitev 100.000 znakov; potrebna je analiza po delih")
     context='\n\n'.join(f'VIR: {d["url"]}\nNASLOV: {d["title"]}\n{d["text"]}' for d in docs)
     schema={'type':'object','additionalProperties':False,'properties':{'conditions':{'type':'array','items':{'type':'object','additionalProperties':False,'properties':{
-        'category':{'type':'string','enum':['eligibility','obligation','selection_threshold','procedure','information']},'label':{'type':'string'},'fact_key':{'type':'string','enum':['municipality','activity','mountain_area','cows_min','cows_max','land_min','land_max','milk_min','milk_max','pasture','farm_registered','legal_form','omd_points','organic','minimum_selection_points','unknown']},
+        'category':{'type':'string','enum':['eligibility','obligation','selection_threshold','scoring','procedure','information']},'label':{'type':'string'},'fact_key':{'type':'string','enum':['municipality','activity','mountain_area','cows_min','cows_max','land_min','land_max','milk_min','milk_max','pasture','farm_registered','legal_form','omd_points','organic','minimum_selection_points','unknown']},
         'operator':{'type':'string','enum':['eq','neq','gte','gt','lte','in','contains','none']},'expected':{'type':['string','number','boolean','null']},
         'mandatory':{'type':'boolean'},'fixed':{'type':'boolean'},'evidence_url':{'type':'string'},'evidence_quote':{'type':'string'},'explanation':{'type':'string'}},
         'required':['category','label','fact_key','operator','expected','mandatory','fixed','evidence_url','evidence_quote','explanation']}}},'required':['conditions']}
     tender_context=docs[0].get('tender_context','') if docs else ''
     prompt=('Izlušči SAMO izrecne pogoje upravičenosti za prijavitelja ali kmetijo iz slovenskega razpisa SKP. '
       'Vsako postavko razvrsti v category: eligibility za dejanski pogoj upravičenosti, obligation za obveznost upravičenca, selection_threshold za minimalni prag, procedure za tehnična navodila oddaje, information za možnosti ali pojasnila. '
+      'Postavke točkovnika za pridobitev dodatnih točk označi scoring in jih ne predstavi kot obvezne pogoje (npr. članstvo v zadrugi ali status mladega kmeta v točkovniku). Minimalni skupni prag za izbor je selection_threshold, ne scoring. '
       'Ne izlušči dovoljenj (npr. vlagatelj lahko vloži več vlog), neobveznih polj, opisov informacijskega sistema ali navodil za klikanje kot pogojev upravičenosti. '
       'Naslov label naj neposredno pove konkretno zahtevo v običajni slovenščini. Če razpis vsebuje le sklic, ne ugibaj vsebine člena ali priloge. '
       'Razpisana sredstva, proračunske postavke in deleži financiranja sami po sebi niso pogoji vlagatelja. '
@@ -216,9 +221,9 @@ def _ai_extract_chunk(docs, evidence_feedback=None):
         if any(not isinstance(item[k],str) for k in ('label','fact_key','operator','evidence_url','evidence_quote','explanation')) or any(type(item[k]) is not bool for k in ('mandatory','fixed')):
             raise ValueError('AI je vrnil neveljavne tipe polj')
         category=item.get('category')
-        if category is not None and category not in ('eligibility','obligation','selection_threshold','procedure','information'):
+        if category is not None and category not in ('eligibility','obligation','selection_threshold','scoring','procedure','information'):
             raise ValueError('AI je vrnil neveljavno vrsto postavke')
-        if category in ('procedure','information'):continue
+        if category in ('procedure','information','scoring'):continue
         if re.search(r'lahko(?:\s+na\s+javni\s+razpis)?\s+vloži\s+več\s+vlog',item['evidence_quote'],re.I):continue
         if item['fact_key']=='minimum_selection_points':
             if type(item['expected']) not in (int,float) or not math.isfinite(item['expected']) or item['expected']<0 or item['operator'] not in ('gte','gt'):
@@ -421,6 +426,7 @@ def analyze(url, progress=None):
     for threshold in explicit_thresholds:
         if not any(c.get('fact_key')=='minimum_selection_points' and c.get('evidence_url')==threshold['evidence_url'] and c.get('page_number')==threshold['page_number'] and c.get('expected')==threshold['expected'] and c.get('operator')==threshold['operator'] for c in extracted):
             extracted.append(threshold)
+    extracted[:]=deduplicate(extracted)
     enrich(extracted,analysis_docs+legal_docs+[{'metadata_only':True,'kind':'legal_catalog','text':'','url':url,'title':'Predpisi','links':legal_links}],progress=progress)
     extracted[:]=deduplicate(extracted)
     for item in extracted:

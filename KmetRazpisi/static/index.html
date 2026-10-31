@@ -29,7 +29,7 @@ async function fetchTender(){try{let d=await api('tender/'+current.tender.id+'/f
 async function addCondition(){try{let expected=JSON.parse($('cExpected').value);await api('tender/'+current.tender.id+'/conditions',{label:$('cLabel').value,fact_key:$('cKey').value,operator:$('cOperator').value,expected,mandatory:$('cMandatory').checked,fixed:$('cFixed').checked,verified:$('cVerified').checked,evidence_url:$('cEvidenceUrl').value,evidence_quote:$('cQuote').value});await load();await openTender(current.tender.id);msg('Pogoj dodan.')}catch(e){msg('Neveljaven pogoj: '+e.message,true)}}
 async function loadLaws(){
  try{const data=await api('laws');$('lawList').innerHTML=data.entries.length?data.entries.map(e=>
-  '<div class="condition"><strong>'+esc(e.law_title||e.source_id)+'</strong><p>'+esc(e.source_id)+' · '+esc(e.version_label||'Različica ni potrjena')+'</p><p class="small">Začetek uporabe: '+esc(e.application_start||'Neznano')+' · shranjeno '+esc(e.fetched_at)+'</p><p><a target="_blank" rel="noopener noreferrer" href="'+esc(e.source_url)+'">Uradni izvoz ↗</a></p></div>'
+  '<div class="condition"><strong>'+esc(e.law_title||e.source_id)+'</strong><p>'+esc(e.source_id)+' · '+esc(e.version_label||'Različica ni potrjena')+'</p><p class="small">Začetek uporabe: '+esc(e.application_start||'Neznano')+' · shranjeno '+esc(e.fetched_at)+'</p><p><a target="_blank" rel="noopener noreferrer" href="'+esc(e.resolved_url||e.source_url)+'">HTML-izvoz ↗</a></p></div>'
  ).join(''):'<p>Ni še shranjenih predpisov. Shranili se bodo ob uspešnem pridobivanju med analizo ali z vnosom uradnega URL-ja.</p>'}
  catch(e){$('lawList').textContent='Seznama ni mogoče prebrati: '+e.message}
 }
@@ -103,7 +103,8 @@ async function watchAnalysis(id,job,token){
   if(job.status!=='running'){
    if(job.status==='done'){
     await openTender(id);
-    msg(job.result?.warnings?.some(w=>w.includes('NEPOPOLNA ANALIZA'))?'Analiza zaključena z opozorili. Preverite nepopolne rezultate.':'Analiza zaključena: '+(job.result?.count||0)+' pogojev.');
+    const incomplete=job.result?.warnings?.some(w=>/NEPOPOLNA ANALIZA|PREDPIS NI DOSTOPEN|PREDPISI NISO PRIDOBLJENI|PRAVNI SKLIC NI RAZREŠEN/.test(w));
+    msg(incomplete?'Obdelava dokumentov je končana, preverjanje pogojev pa je NEPOPOLNO. Preverite opozorila o predpisih.':'Analiza zaključena: '+(job.result?.count||0)+' pogojev.',!!incomplete);
    }else if(job.status==='failed')msg('Analiza ni uspela: '+job.error,true);
    return;
   }

@@ -103,3 +103,35 @@ class LegalCoverage(unittest.TestCase):
             result=legal.resolve_supplied(c,[dict(url=LAW,title='Uredba',law=law)],'Kontekst')
         self.assertEqual(result['status'],'unresolved')
         explain.assert_not_called()
+
+class DuplicateCallFormats(unittest.TestCase):
+    def test_pdf_preferred_over_docx_for_same_call_without_skipping_amendment(self):
+        amendment='https://www.gov.si/assets/Sprememba.pdf'
+        html=f'<main><a href="{PDF}">Javni razpis</a><a href="{PDF[:-4]}.docx">Javni razpis</a><a href="{amendment}">Sprememba javnega razpisa</a></main>'.encode()
+        with pymupdf.open() as pdf:
+            pdf.new_page().insert_text((40,60),'The applicant must meet the formal conditions stated here.');raw=pdf.tobytes()
+        with patch('analyzer.get',side_effect=[(CALL,html,'text/html'),(PDF,raw,'application/pdf'),(amendment,raw,'application/pdf')]) as fetch:
+            docs,errors,count=analyzer.collect(CALL)
+        self.assertEqual(errors,[]);self.assertEqual(count,2)
+        self.assertFalse(any(d['url'].endswith('.docx') for d in docs))
+        self.assertEqual(fetch.call_count,3)
+
+    def test_explanation_section_numbers_do_not_create_false_distinctions(self):
+        one=condition(label='Poslovni načrt mora biti izdelan najmanj do 31. 12. 2034',quote='poslovni načrt mora biti v skladu s prvim odstavkom 29. člena uredbe izdelan najmanj do 31. 12. 2034')
+        two={**one,'explanation':'Izrecna obveznost v 5.1.2.c','evidence_url':'https://www.gov.si/another.pdf'}
+        one['explanation']='Izrecno zahtevan rok poslovnega načrta.'
+        self.assertEqual(len(deduplicate([one,two])),1)
+
+    def test_obvious_title_variants_with_same_scope_are_merged(self):
+        one=condition(label='Vlagatelj mora imeti v letu 2025 prihodek najmanj 1,5 minimalne plače',quote='V letu 2025 ima prihodek najmanj 1,5 minimalne plače.')
+        two={**one,'label':'Vlagatelj ima v letu 2025 prihodek najmanj 1,5 minimalne plače'}
+        self.assertEqual(len(deduplicate([one,two])),1)
+
+class ScoringNotEligibility(unittest.TestCase):
+    def test_optional_scoring_criterion_is_not_a_mandatory_condition(self):
+        quote='Vlagatelj mora biti član skupine proizvajalcev ali zadruge.'
+        doc=dict(url=PDF,title='Javni razpis',text=quote,pages=1,page_texts=[dict(number=8,text=quote)])
+        item={**condition(label='Članstvo za dodatne točke',quote=quote),'category':'scoring'}
+        response=Mock(ok=True,json=lambda:{'choices':[{'message':{'content':json.dumps({'conditions':[item]})}}]})
+        with patch.dict(__import__('os').environ,{'OPENAI_API_KEY':'test'}),patch('analyzer.requests.post',return_value=response):
+            self.assertEqual(analyzer.ai_extract([doc]),[])

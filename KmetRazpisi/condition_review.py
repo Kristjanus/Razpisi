@@ -11,12 +11,13 @@ def normalize(value):
 def deduplicate(conditions):
     output=[];seen={}
     for condition in conditions:
-        evidence=condition.get('evidence_quote','')+' '+condition.get('explanation','')
+        evidence=condition.get('evidence_quote','')
         numbers=tuple(sorted(set(re.findall(r'\b\d+(?:[.,]\d+)?\b',evidence))))
         scope=tuple(sorted(set(re.findall(r'\b(?:sklop\w*\s+\w+|enostavn\w*|zahtevn\w*|razen[^.;]+)',evidence,re.I))))
         legal=condition.get('legal_resolution') or {}
         provisions=tuple((p.get('source_url'),p.get('provision')) for p in legal.get('provisions',[]))
-        key=(normalize(condition.get('label','')),condition.get('fact_key'),condition.get('operator'),
+        label=normalize(condition.get('label','')).replace('mora imeti','ima').replace('oziroma','ali')
+        key=(label,condition.get('fact_key'),condition.get('operator'),
              json.dumps(condition.get('expected'),sort_keys=True,ensure_ascii=False),bool(condition.get('mandatory')),bool(condition.get('fixed')),numbers,scope,provisions)
         if key not in seen:
             item={**condition,'additional_sources':list(condition.get('additional_sources',[]))}

@@ -30,7 +30,7 @@ def load_prescribed(links,progress=None):
         try:
             text=source_text(link['url']);law=parse_law(text)
             cached=LawLibrary().find_url(link['url'])
-            documents.append({'kind':'law','url':link['url'],'title':link['title'],'text':text,'law':law,
+            documents.append({'kind':'law','url':cached.get('resolved_url',link['url']) if cached else link['url'],'title':link['title'],'text':text,'law':law,
                               'metadata':cached.get('metadata',{}) if cached else {}})
         except Exception as ex:
             # Exact known ID can reference a local snapshot, never infer a new file ID.

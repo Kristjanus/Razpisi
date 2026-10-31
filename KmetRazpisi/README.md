@@ -1,3 +1,22 @@
+## Novost 1.7.1 – povezave strani predpisa z znanimi HTML-izvozi
+
+Povezavi Pis.web/pregledPredpisa?id=URED9278 in URED8874 se usmerita na neposredna
+HTML-izvoza, ki ju je posredoval uporabnik: 545935768 in 493126267. To sta izrecni
+povezavi v pisrs_exports.py, ne algoritem za ugibanje številk datotek. Po prenosu
+mora metadata izvoza potrditi ID predpisa, sicer se datoteka zavrne. Različico za
+razpis je še vedno treba preveriti. Uporabijo se lahko tudi enolični že shranjeni
+izvozi. Pri drugih predpisih se sledi izrecni HTML-povezavi, če je v odgovoru strani;
+če je stran samo JavaScript-vmesnik brez te povezave, ostane opozorilo. Splošno
+odkrivanje vseh izvozov PISRS še ni potrjeno. Neposredni živi prenos v oblačnem
+okolju še blokira omrežna politika; povezavi sta preverjeni s simuliranim prenosom
+in identifikacijo dokumenta. URED8874 je preverjen tudi na dejanskem priloženem HTML.
+
+Pri enaki poti Javni-razpis.pdf in Javni-razpis.docx ima PDF prednost, zato se oba
+formata ne analizirata. Različno poimenovane spremembe se ohranijo. Podvojitve se
+združujejo pred in po razlagi; različne številke v AI-pojasnilih ne ustvarjajo
+navidez različnih zahtev. Zaključek z nedostopnimi predpisi je jasno NEPOPOLN. Postavke, ki jih AI razvrsti
+kot merila za dodatne točke (scoring), se ne shranijo med obvezne pogoje.
+
 ## Novost 1.7.0 – samo dokumentacija, priloženi predpisi in ločene zahteve
 
 Besedilo spletne objave se ne pošlje modelu niti kot kontekst. Spletna stran služi
@@ -241,7 +260,7 @@ celotne nove analize; prejšnji rezultat ostane. Že opravljeni API klici so klj
 poznejši napaki plačljivi. Dolgi dokumenti zato potrebujejo več časa in več API
 klicev. Pogoji ostajajo nepotrjeni, ker se izjeme lahko nahajajo v drugih sklopih.
 
-# Trenutna različica: 1.7.0
+# Trenutna različica: 1.7.1
 
 Različica 1.3.1 popravlja zajem: edini začetni vir je uradni seznam SKP, dejanski razpisi pa so povezane strani pod `/zbirke/javne-objave/`. Informativne strani iz starih pregledov ostanejo v bazi, vendar niso več prikazane med razpisi. Ročno dodajanje preveri prisotnost povezave na seznamu SKP.
 

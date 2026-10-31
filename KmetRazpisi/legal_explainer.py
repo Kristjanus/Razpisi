@@ -9,6 +9,8 @@ import requests
 from bs4 import BeautifulSoup
 from law_documents import decode_document, parse_law, articles_for_reference, LawLibrary, LawParseError, document_metadata, reference_article_numbers
 
+from pisrs_exports import resolve_export, record_id, direct_export, KNOWN_EXPORTS
+
 OFFICIAL_HOSTS=('pisrs.si','uradni-list.si','eur-lex.europa.eu')
 
 
@@ -29,7 +31,11 @@ def source_text(url, refresh=False):
     if not official(url):raise ValueError('Pravni vir ni na dovoljeni uradni domeni')
     if not refresh:
         cached=LawLibrary().find_url(url)
-        if cached is not None:return cached['text']
+        if cached is not None:
+            expected=record_id(original_url) or next((identifier for identifier,target in KNOWN_EXPORTS.items() if target==original_url),None)
+            if expected and cached.get('source_id')!=expected:raise LawParseError('Shranjeni izvoz se ne ujema z ID-jem zahtevanega predpisa')
+            return cached['text']
+    url,expected_id=resolve_export(url,LawLibrary().entries())
     for _ in range(6):
         if not official(url):raise ValueError('Pravni vir ni na dovoljeni uradni domeni')
         with requests.get(url,timeout=(10,35),stream=True,allow_redirects=False) as response:
@@ -40,8 +46,19 @@ def source_text(url, refresh=False):
                 raw.extend(block)
                 if len(raw)>8_000_000:raise ValueError('Pravni vir presega 8 MB')
             text,format=decode_document(bytes(raw),response.headers.get('content-type',''))
-            law=parse_law(text)
-            metadata=document_metadata(bytes(raw));metadata['resolved_url']=url
+            metadata=document_metadata(bytes(raw))
+            try:law=parse_law(text)
+            except LawParseError as ex:
+                if record_id(url):
+                    soup=BeautifulSoup(bytes(raw),'html.parser')
+                    links={urljoin(url,a['href']) for a in soup.select('a[href]') if ('html' in a.get_text(' ',strip=True).casefold() or a.get('type')=='text/html') and direct_export(urljoin(url,a['href']))}
+                    if len(links)==1:
+                        url=next(iter(links));continue
+                    raise LawParseError(f'{record_id(url)}: povezava vodi na vmesnik PISRS, ne na HTML-izvoz. Neposredni izvoz še ni določen; vsebina predpisa ni pridobljena.') from ex
+                raise
+            if expected_id and metadata.get('source_id')!=expected_id:
+                raise LawParseError(f'Izvoz ne potrjuje zahtevanega predpisa {expected_id}; datoteka ni bila uporabljena')
+            metadata['resolved_url']=url
             LawLibrary().store(original_url,bytes(raw),text,format,law,version_label=metadata.get('version_label') or 'nepotrjena časovna različica',metadata=metadata)
             return text
     raise ValueError('Preveč preusmeritev pravnega vira')
