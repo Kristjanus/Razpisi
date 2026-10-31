@@ -222,14 +222,23 @@ def _ai_extract_chunk(docs, evidence_feedback=None):
             # Selection is distinct from applicant eligibility; never use to hide.
             item['mandatory']=False
             item['fixed']=False
-        if item['evidence_url'] not in valid_urls:raise ValueError('AI je navedel vir zunaj prebrane dokumentacije')
-        if not item['evidence_quote'].strip():raise ValueError('AI je vrnil pogoj brez citata')
-        source=next(d for d in docs if d['url']==item['evidence_url'])
-        # Loose whitespace normalization to tolerate PDF line wrapping; never invent evidence.
         norm=normalize_quote
-        if norm(item['evidence_quote']) not in norm(source['text']):
-            rejected.append(f"{item['label'][:100]}: AI citata ni mogoče potrditi v izvornem dokumentu (citat: {item['evidence_quote'][:160]})")
+        quote=norm(item['evidence_quote'])
+        if not quote:
+            rejected.append(f"{item['label'][:100]}: AI je vrnil pogoj brez citata")
             continue
+        source=next((d for d in docs if d['url']==item['evidence_url'] and quote in norm(d['text'])),None)
+        if source is None:
+            # URL is model output; the actual downloaded text determines provenance.
+            # Never fetch a model-invented URL to make its evidence pass.
+            matches=[d for d in docs if quote in norm(d['text'])]
+            if len(matches)==1:
+                source=matches[0]
+                item['evidence_url']=source['url']
+            else:
+                reason='AI je navedel vir zunaj prebrane dokumentacije' if item['evidence_url'] not in valid_urls else 'AI citata ni mogoče potrditi v izvornem dokumentu'
+                rejected.append(f"{item['label'][:100]}: {reason}; citat ni enolično potrjen v prebranih virih")
+                continue
         if item['fact_key']=='minimum_selection_points':
             numbers=re.findall(r'(?<![\w])\d+(?:[.,]\d+)?(?![\w])',item['evidence_quote'])
             if not any(float(n.replace(',','.'))==item['expected'] for n in numbers):

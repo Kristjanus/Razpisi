@@ -672,3 +672,37 @@ class SearchCompatibility(unittest.TestCase):
         self.assertEqual(count,10)
         self.assertEqual(len(docs),11)
         self.assertEqual(docs[-1]['url'],urls[-1])
+
+class SourceAttribution(unittest.TestCase):
+    def test_wrong_model_url_rebound_to_unique_downloaded_source(self):
+        case=Extraction();case.setUp();case.item['evidence_url']='https://www.gov.si/other.pdf'
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('analyzer.requests.post',return_value=case.response(json.dumps({'conditions':[case.item]}))),patch('analyzer.requests.get') as fetch:
+            result=analyzer.ai_extract(case.docs)
+        fetch.assert_not_called()
+        self.assertEqual(result[0]['evidence_url'],URL)
+        self.assertEqual(result[0]['document_title'],'Pogoji.pdf')
+        self.assertEqual(result[0]['page_number'],1)
+
+    def test_unknown_source_and_invented_quote_remain_rejected(self):
+        case=Extraction();case.setUp();case.item.update(evidence_url='https://example.org/invented',evidence_quote='Invented statement not present')
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('analyzer.requests.post',return_value=case.response(json.dumps({'conditions':[case.item]}))) as request:
+            with self.assertRaisesRegex(ValueError,'Noben pogoj'):
+                analyzer.ai_extract(case.docs)
+        self.assertEqual(request.call_count,2)
+
+    def test_ambiguous_quote_is_not_attributed_arbitrarily(self):
+        case=Extraction();case.setUp();case.item['evidence_url']='https://www.gov.si/missing.pdf'
+        docs=[case.docs[0],{**case.docs[0],'url':'https://www.gov.si/second.pdf'}]
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('analyzer.requests.post',return_value=case.response(json.dumps({'conditions':[case.item]}))):
+            with self.assertRaises(analyzer.EvidenceError):analyzer._ai_extract_chunk(docs)
+
+    def test_rejected_source_does_not_stop_later_pdf(self):
+        case=Extraction();case.setUp()
+        web=dict(url='https://www.gov.si/call',title='Uradna spletna objava',text='Unrelated announcement text',pages=None)
+        bad={**case.item,'evidence_url':'https://www.gov.si/missing.pdf','evidence_quote':'Invented statement'}
+        replies=[case.response(json.dumps({'conditions':[bad]})),case.response(json.dumps({'conditions':[bad]})),case.response(json.dumps({'conditions':[case.item]}))]
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('analyzer.requests.post',side_effect=replies):
+            result=analyzer.ai_extract([web,case.docs[0]])
+        self.assertEqual(len(result),1)
+        self.assertEqual(result[0]['evidence_url'],URL)
+        self.assertTrue(any('NEPOPOLNA ANALIZA' in warning for warning in result.warnings))

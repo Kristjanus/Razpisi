@@ -1,3 +1,12 @@
+## Novost 1.4.3 – vir pogoja se določi po preverjenem citatu
+
+Če AI navede napačen URL, se citat preveri v dejansko prenesenih dokumentih
+trenutnega sklopa. Če se ujema samo z enim dokumentom, se uporabi njegov pravi
+URL in ime; pri PDF-ju se še vedno zahteva določljiva stran. Nobena AI-povezava
+se zaradi tega ne odpira. Neobstoječi, prazni ali dvoumni citati gredo v en
+ponovni poskus in nato med opozorila nepopolne analize; ne ustavijo drugih
+sklopov. Če ni nobenega potrjenega pogoja, se analiza še vedno konča z napako.
+
 ## Novost 1.4.2 – združljivost spletnega iskanja in vse priloge
 
 Pri HTTP 400, povezanem s tools/web_search, pravno iskanje najprej poskusi orodje
@@ -141,7 +150,7 @@ celotne nove analize; prejšnji rezultat ostane. Že opravljeni API klici so klj
 poznejši napaki plačljivi. Dolgi dokumenti zato potrebujejo več časa in več API
 klicev. Pogoji ostajajo nepotrjeni, ker se izjeme lahko nahajajo v drugih sklopih.
 
-# Trenutna različica: 1.4.2
+# Trenutna različica: 1.4.3
 
 Različica 1.3.1 popravlja zajem: edini začetni vir je uradni seznam SKP, dejanski razpisi pa so povezane strani pod `/zbirke/javne-objave/`. Informativne strani iz starih pregledov ostanejo v bazi, vendar niso več prikazane med razpisi. Ročno dodajanje preveri prisotnost povezave na seznamu SKP.
 
